@@ -3,8 +3,9 @@ Duplicate File Preventer Package
 Automatic duplicate removal for Thunderbird FiltaQuilla
 """
 
-__version__ = "1.0.0"
-__author__ = "Your Name"
+# Year-Month-Day versioning scheme
+__version__ = "20250704"
+__author__ = "RedBearAK"
 
 # Make key classes available at package level
 from .config import Config

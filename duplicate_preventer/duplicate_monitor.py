@@ -2,11 +2,14 @@
 Main monitor class and user interface for Duplicate File Preventer
 Provides interactive menu and monitoring control
 """
+
 import os
 import re
-import shutil
+import copy
 import time
+import shutil
 import argparse
+
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -150,7 +153,7 @@ class DuplicateMonitor:
             return
 
         idx = IntPrompt.ask("Enter folder number to remove", 
-                           default=0, show_default=False)
+                            default=0, show_default=False)
         if 1 <= idx <= len(folders):
             removed = folders.pop(idx - 1)
             self.config.set("watched_folders", folders)
@@ -165,7 +168,7 @@ class DuplicateMonitor:
             return
 
         idx = IntPrompt.ask("Enter folder number to edit", 
-                           default=0, show_default=False)
+                            default=0, show_default=False)
         if 1 <= idx <= len(folders):
             old_path = folders[idx - 1]
             console.print(f"\nCurrent path: {old_path}")
@@ -202,7 +205,7 @@ class DuplicateMonitor:
         # Dry run mode
         console.print("[bold]Test Mode:[/bold]")
         dry_run = Confirm.ask("Enable dry run mode? (test without moving files)", 
-                             default=self.config.get("dry_run", False))
+                                default=self.config.get("dry_run", False))
         self.config.set("dry_run", dry_run)
 
         if dry_run:
@@ -229,7 +232,7 @@ class DuplicateMonitor:
             
             while True:
                 time_str = Prompt.ask("Time window for duplicates", 
-                                     default=current_formatted)
+                                        default=current_formatted)
                 seconds = parse_time_window(time_str)
                 if seconds:
                     self.config.set("time_window", seconds)
@@ -240,14 +243,14 @@ class DuplicateMonitor:
 
         # Hash verification (optional)
         use_hash = Confirm.ask("Enable hash verification? (more accurate but slower)", 
-                               default=self.config.get("use_hash"))
+                                default=self.config.get("use_hash"))
         self.config.set("use_hash", use_hash)
 
         if use_hash:
             console.print("\nHash algorithms: md5 (fast), sha256 (secure), sha512 (most secure)")
             algo = Prompt.ask("Select hash algorithm", 
-                             default=self.config.get("hash_algorithm"),
-                             choices=["md5", "sha1", "sha256", "sha512"])
+                                default=self.config.get("hash_algorithm"),
+                                choices=["md5", "sha1", "sha256", "sha512"])
             self.config.set("hash_algorithm", algo)
 
         # Check interval
@@ -266,7 +269,7 @@ class DuplicateMonitor:
         if change_quarantine:
             console.print("[dim]Tip: Choose a location outside of Dropbox/OneDrive/iCloud[/dim]")
             quarantine = Prompt.ask("Quarantine folder path",
-                                   default=current_quarantine)
+                                    default=current_quarantine)
             quarantine = clean_path(quarantine)
 
             # Check if it's inside cloud folders
@@ -286,8 +289,8 @@ class DuplicateMonitor:
         console.print("\n[bold]Logging Settings:[/bold]")
         console.print("Log levels: DEBUG (verbose), INFO (normal), WARNING (important only)")
         log_level = Prompt.ask("Log level", 
-                              default=self.config.get("log_level", "INFO"),
-                              choices=["DEBUG", "INFO", "WARNING"])
+                                default=self.config.get("log_level", "INFO"),
+                                choices=["DEBUG", "INFO", "WARNING"])
         self.config.set("log_level", log_level)
 
         max_size = IntPrompt.ask("Max log file size (MB)",
@@ -357,7 +360,7 @@ class DuplicateMonitor:
         table.add_row("", "")  # Empty row for spacing
         table.add_row("Check Interval", f"{self.config.get('check_interval')} seconds")
         table.add_row("Auto-delete After", f"{self.config.get('delete_after_days')} days" 
-                      if self.config.get('delete_after_days') > 0 else "Never")
+                        if self.config.get('delete_after_days') > 0 else "Never")
         table.add_row("Log Level", self.config.get("log_level", "INFO"))
         table.add_row("Log Max Size", f"{self.config.get('log_max_size', 10)} MB")
 
@@ -446,9 +449,8 @@ class DuplicateMonitor:
         use_time_window = Confirm.ask("\nUse time window check?", default=False)
         
         # Create temporary config for scanning
-        temp_config = Config()
-        temp_config.config = self.config.config.copy()
-        temp_config.config_file = self.config.config_file
+        # We'll modify a copy of the current config
+        temp_config = copy.deepcopy(self.config)
         
         if use_time_window:
             current_window = temp_config.get("time_window", 300)
@@ -458,7 +460,7 @@ class DuplicateMonitor:
             
             while True:
                 time_str = Prompt.ask("Time window for existing files", 
-                                     default=current_formatted)
+                                        default=current_formatted)
                 seconds = parse_time_window(time_str)
                 if seconds:
                     temp_config.set("time_window", seconds)
@@ -915,11 +917,11 @@ def main():
         description='Duplicate File Preventer - Prevents duplicate files from syncing to cloud storage'
     )
     parser.add_argument('--dry-run', '-d', action='store_true', 
-                       help='Run in test mode without moving files')
+                        help='Run in test mode without moving files')
     parser.add_argument('--config', '-c', 
-                       help='Path to config file (default: platform-specific)')
+                        help='Path to config file (default: platform-specific)')
     parser.add_argument('--start', '-s', action='store_true', 
-                       help='Start monitoring immediately')
+                        help='Start monitoring immediately')
     args = parser.parse_args()
 
     console.print("\n[bold cyan]Duplicate File Preventer[/bold cyan]")

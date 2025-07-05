@@ -4,7 +4,7 @@ Automatic duplicate removal for Thunderbird FiltaQuilla
 """
 
 # Year-Month-Day versioning scheme
-__version__ = "20250704"
+__version__ = "20250705"
 __author__ = "RedBearAK"
 
 # Make key classes available at package level

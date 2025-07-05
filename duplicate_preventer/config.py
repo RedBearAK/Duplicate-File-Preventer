@@ -34,7 +34,7 @@ class Config:
             "use_hash": False,  # Hash verification OFF by default
             "hash_algorithm": "sha256",
             "time_window": 300,  # 5 minutes in seconds
-            "check_time": True,  # Check creation time
+            "check_time": False,  # Time window OFF by default
             "check_size": True,  # Check file size
             "file_patterns": [r"(.+?)(-\d+)?(\.[^.]+)$"],  # matches file-1.ext
             "log_file": os.path.join(self.config_dir, "duplicate_monitor.log"),

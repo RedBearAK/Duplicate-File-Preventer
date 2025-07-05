@@ -18,7 +18,7 @@ from watchdog.events import FileSystemEventHandler
 from rich.console import Console
 
 from .config import Config
-from .utils import get_relative_path, is_potential_duplicate
+from .utils import get_relative_path, is_potential_duplicate, format_time_window
 
 console = Console()
 
@@ -73,9 +73,26 @@ class DuplicateHandler(FileSystemEventHandler):
         self.logger.info(f"Duplicate File Preventer started - Session: {self.session_start}")
         self.logger.info(f"Config: {self.config.config_file}")
         self.logger.info(f"Dry run mode: {'ENABLED' if self.config.get('dry_run', False) else 'DISABLED'}")
-        self.logger.info(f"Detection: Size={self.config.get('check_size')}, "
-                        f"Time={self.config.get('check_time')} ({self.config.get('time_window')}s window), "
-                        f"Hash={self.config.get('use_hash')}")
+        
+        # Format detection settings
+        detection_parts = []
+        if self.config.get('check_size'):
+            detection_parts.append("Size=ON")
+        else:
+            detection_parts.append("Size=OFF")
+            
+        if self.config.get('check_time'):
+            time_window = format_time_window(self.config.get('time_window'))
+            detection_parts.append(f"Time=ON ({time_window})")
+        else:
+            detection_parts.append("Time=OFF")
+            
+        if self.config.get('use_hash'):
+            detection_parts.append(f"Hash=ON ({self.config.get('hash_algorithm')})")
+        else:
+            detection_parts.append("Hash=OFF")
+            
+        self.logger.info(f"Detection: {', '.join(detection_parts)}")
         
     def on_created(self, event):
         """Handle new file creation events"""
@@ -174,10 +191,12 @@ class DuplicateHandler(FileSystemEventHandler):
         # Time window check
         if self.config.get("check_time"):
             time_diff = abs(file_ctime - original_ctime)
-            if time_diff <= self.config.get("time_window"):
+            time_window = self.config.get("time_window")
+            if time_diff <= time_window:
                 checks_passed.append(f"time within {time_diff:.1f}s")
             else:
-                reasons.append(f"time outside window ({time_diff:.1f}s > {self.config.get('time_window')}s)")
+                time_window_str = format_time_window(time_window)
+                reasons.append(f"time outside window ({time_diff:.1f}s > {time_window_str})")
                 return False, "; ".join(reasons)
         
         # Hash check

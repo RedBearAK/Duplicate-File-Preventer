@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+
 """
 Duplicate File Preventer - Entry point
 Prevents duplicate files from syncing to cloud storage
 """
+
 import sys
 from pathlib import Path
 

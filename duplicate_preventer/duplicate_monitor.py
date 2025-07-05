@@ -17,7 +17,7 @@ from rich.table import Table
 
 from .config import Config
 from .duplicate_handler import DuplicateHandler
-from .utils import clean_path, format_size, is_cloud_folder
+from .utils import clean_path, format_size, is_cloud_folder, parse_time_window, format_time_window
 
 console = Console()
 
@@ -48,11 +48,13 @@ class DuplicateMonitor:
             console.print("4. ▶️   Start monitoring" if not self.monitoring else "4. ⏸️   Stop monitoring")
             console.print("5. 🗑️   View quarantine")
             console.print("6. 📊  View logs & statistics")
-            console.print("7. 💾  Save configuration\n")
+            console.print("7. 💾  Save configuration")
+            console.print("8. 🧹  Clean existing duplicates\n")
 
             console.print("Q. 🚪  Quit\n")
 
-            choice = Prompt.ask("Select option", choices=["1","2","3","4","5","6","7","Q"], case_sensitive=False)
+            choice = Prompt.ask("Select option", choices=["1","2","3","4","5","6","7","8","Q","q"], case_sensitive=False)
+            choice = choice.upper()
 
             if choice == "1":
                 self.manage_folders()
@@ -68,6 +70,8 @@ class DuplicateMonitor:
                 self.view_statistics()
             elif choice == "7":
                 self.config.save_config()
+            elif choice == "8":
+                self.clean_existing_duplicates()
             elif choice == "Q":
                 if self.monitoring:
                     self.stop_monitoring()
@@ -102,7 +106,7 @@ class DuplicateMonitor:
 
             console.print("0. Back to main menu\n")
 
-            choice = Prompt.ask("Select option", choices=["1","2","3","0"], case_sensitive=False)
+            choice = Prompt.ask("Select option", choices=["1","2","3","0"])
 
             if choice == "1":
                 self._add_folder(folders)
@@ -218,10 +222,21 @@ class DuplicateMonitor:
         self.config.set("check_time", check_time)
 
         if check_time:
-            minutes = self.config.get("time_window") // 60
-            minutes = IntPrompt.ask("Time window for duplicates (minutes)", 
-                                   default=minutes, show_default=True)
-            self.config.set("time_window", minutes * 60)
+            current_window = self.config.get("time_window")
+            current_formatted = format_time_window(current_window)
+            console.print(f"\nCurrent time window: {current_formatted}")
+            console.print("[dim]Format: number + unit (5m, 2h, 3d, 1w, 2mo, 1y)[/dim]")
+            
+            while True:
+                time_str = Prompt.ask("Time window for duplicates", 
+                                     default=current_formatted)
+                seconds = parse_time_window(time_str)
+                if seconds:
+                    self.config.set("time_window", seconds)
+                    console.print(f"[green]Time window set to {format_time_window(seconds)}[/green]")
+                    break
+                else:
+                    console.print("[red]Invalid format. Use: 5m, 2h, 3d, 1w, 2mo, 1y[/red]")
 
         # Hash verification (optional)
         use_hash = Confirm.ask("Enable hash verification? (more accurate but slower)", 
@@ -287,7 +302,8 @@ class DuplicateMonitor:
         if check_size:
             logic_parts.append("matching file size")
         if check_time:
-            logic_parts.append(f"created within {minutes} minutes")
+            time_window = self.config.get("time_window")
+            logic_parts.append(f"created within {format_time_window(time_window)}")
         logic_parts.append("matching filename pattern (file-1, file-2, etc.)")
         if use_hash:
             logic_parts.append(f"verified by {algo.upper()} hash")
@@ -331,7 +347,8 @@ class DuplicateMonitor:
         table.add_row("  File Size Check", "✓ Enabled" if self.config.get("check_size") else "✗ Disabled")
         table.add_row("  Time Window Check", "✓ Enabled" if self.config.get("check_time") else "✗ Disabled")
         if self.config.get("check_time"):
-            table.add_row("  Time Window", f"{self.config.get('time_window') // 60} minutes")
+            time_window = self.config.get("time_window")
+            table.add_row("  Time Window", format_time_window(time_window))
         table.add_row("  Hash Verification", "✓ Enabled" if self.config.get("use_hash") else "✗ Disabled")
         if self.config.get("use_hash"):
             table.add_row("  Hash Algorithm", self.config.get("hash_algorithm").upper())
@@ -402,6 +419,120 @@ class DuplicateMonitor:
             self.monitoring = False
             console.print("[green]Monitor stopped.[/green]")
             input("\nPress Enter to continue...")
+
+    def clean_existing_duplicates(self):
+        """One-shot cleanup of existing duplicate files"""
+        console.clear()
+        console.print("\n[bold]Clean Existing Duplicates[/bold]\n")
+        
+        folders = self.config.get("watched_folders", [])
+        if not folders:
+            console.print("[red]No folders configured to scan![/red]")
+            input("\nPress Enter to continue...")
+            return
+        
+        # Show what will be scanned
+        console.print("[bold]Will scan these folders:[/bold]")
+        for folder in folders:
+            if os.path.exists(folder):
+                console.print(f"  ✓ {folder}")
+            else:
+                console.print(f"  ✗ {folder} [red](missing)[/red]")
+        
+        console.print(f"\n[yellow]This will look for files with -1, -2, etc. patterns[/yellow]")
+        console.print(f"[yellow]Note: Scans all subfolders recursively[/yellow]")
+        
+        # Options
+        use_time_window = Confirm.ask("\nUse time window check?", default=False)
+        
+        # Create temporary config for scanning
+        temp_config = Config()
+        temp_config.config = self.config.config.copy()
+        temp_config.config_file = self.config.config_file
+        
+        if use_time_window:
+            current_window = temp_config.get("time_window", 300)
+            current_formatted = format_time_window(current_window)
+            console.print(f"Current time window: {current_formatted}")
+            console.print("[dim]Format: number + unit (5m, 2h, 3d, 1w, 2mo, 1y)[/dim]")
+            
+            while True:
+                time_str = Prompt.ask("Time window for existing files", 
+                                     default=current_formatted)
+                seconds = parse_time_window(time_str)
+                if seconds:
+                    temp_config.set("time_window", seconds)
+                    console.print(f"[green]Using time window: {format_time_window(seconds)}[/green]")
+                    break
+                else:
+                    console.print("[red]Invalid format. Use: 5m, 2h, 3d, 1w, 2mo, 1y[/red]")
+        else:
+            temp_config.set("check_time", False)
+        
+        # Dry run option
+        dry_run = Confirm.ask("\nRun in dry-run mode?", default=True)
+        temp_config.set("dry_run", dry_run)
+        
+        if dry_run:
+            console.print("[cyan]DRY RUN - No files will be moved[/cyan]")
+        else:
+            console.print("[yellow]Files WILL be moved to quarantine[/yellow]")
+        
+        if not Confirm.ask("\nProceed with scan?", default=True):
+            return
+        
+        # Create handler with temporary config
+        scanner = DuplicateHandler(temp_config)
+        
+        # Track progress
+        total_scanned = 0
+        duplicates_found = 0
+        
+        console.print("\n[yellow]Scanning...[/yellow]\n")
+        
+        # Scan each folder
+        for folder in folders:
+            if not os.path.exists(folder):
+                continue
+                
+            console.print(f"Scanning: {folder}")
+            folder_count = 0
+            
+            for root, dirs, files in os.walk(folder):
+                # Find potential duplicates
+                for filename in sorted(files):
+                    # Check if it matches duplicate pattern
+                    if re.search(r'-\d+\.[^.]+$', filename):
+                        total_scanned += 1
+                        file_path = os.path.join(root, filename)
+                        
+                        # Show progress every 10 files
+                        if total_scanned % 10 == 0:
+                            console.print(f"  [dim]Checked {total_scanned} files...[/dim]")
+                        
+                        # Use the handler's duplicate detection
+                        # We need to check if this file has an original
+                        base_name = re.sub(r'-\d+(\.[^.]+)$', r'\1', filename)
+                        original_path = os.path.join(root, base_name)
+                        
+                        if os.path.exists(original_path):
+                            # Original exists, let handler check if it's a duplicate
+                            scanner._handle_duplicate(file_path)
+                            folder_count += 1
+            
+            if folder_count > 0:
+                console.print(f"  → Found {folder_count} potential duplicates")
+                duplicates_found += folder_count
+        
+        # Summary
+        console.print(f"\n[bold]Scan Complete[/bold]")
+        console.print(f"Files scanned: {total_scanned}")
+        console.print(f"Potential duplicates processed: {duplicates_found}")
+        
+        if dry_run and duplicates_found > 0:
+            console.print("\n[cyan]This was a dry run. To actually move files, run again with dry-run OFF.[/cyan]")
+        
+        input("\nPress Enter to continue...")
 
     def view_quarantine(self):
         """View quarantined files with path structure"""
@@ -623,7 +754,7 @@ class DuplicateMonitor:
             console.print("6. Clear old logs\n")
             console.print("0. Back to main menu\n")
 
-            choice = Prompt.ask("Select option", choices=["1","2","3","4","5","6","0"], case_sensitive=False)
+            choice = Prompt.ask("Select option", choices=["1","2","3","4","5","6","0"])
 
             if choice == "1":
                 self._view_recent_logs()

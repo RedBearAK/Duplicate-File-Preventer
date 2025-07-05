@@ -91,3 +91,57 @@ def is_cloud_folder(path: str) -> bool:
     """Check if path is inside a cloud sync folder"""
     cloud_indicators = ["Dropbox", "OneDrive", "iCloud", "Google Drive"]
     return any(indicator in path for indicator in cloud_indicators)
+
+
+def parse_time_window(time_str: str) -> Optional[int]:
+    """Parse time window string like '5m', '2h', '3d' into seconds
+    
+    Supported units:
+    - s/sec/seconds
+    - m/min/minutes  
+    - h/hr/hour/hours
+    - d/day/days
+    - w/wk/week/weeks
+    - mo/month/months (30 days)
+    - y/yr/year/years (365 days)
+    
+    Returns seconds as integer, or None if invalid format
+    """
+    time_str = time_str.strip().lower()
+    match = re.match(r'^(\d+\.?\d*)\s*([a-z]+)$', time_str)
+    
+    if not match:
+        return None
+
+    value = float(match.group(1))
+    unit = match.group(2)
+
+    units = {
+        's': 1, 'sec': 1, 'second': 1, 'seconds': 1,
+        'm': 60, 'min': 60, 'minute': 60, 'minutes': 60,
+        'h': 3600, 'hr': 3600, 'hour': 3600, 'hours': 3600,
+        'd': 86400, 'day': 86400, 'days': 86400,
+        'w': 604800, 'wk': 604800, 'week': 604800, 'weeks': 604800,
+        'mo': 2592000, 'month': 2592000, 'months': 2592000,  # 30 days
+        'y': 31536000, 'yr': 31536000, 'year': 31536000, 'years': 31536000  # 365 days
+    }
+
+    return int(value * units[unit]) if unit in units else None
+
+
+def format_time_window(seconds: int) -> str:
+    """Format seconds into human-readable time string"""
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        return f"{seconds // 60}m"
+    elif seconds < 86400:
+        return f"{seconds // 3600}h"
+    elif seconds < 604800:
+        return f"{seconds // 86400}d"
+    elif seconds < 2592000:
+        return f"{seconds // 604800}w"
+    elif seconds < 31536000:
+        return f"{seconds // 2592000}mo"
+    else:
+        return f"{seconds // 31536000}y"

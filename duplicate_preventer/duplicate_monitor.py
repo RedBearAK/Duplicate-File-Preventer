@@ -2,14 +2,13 @@
 Main monitor class and user interface for Duplicate File Preventer
 Provides interactive menu and monitoring control
 """
-
 import os
 import re
-import copy
-import time
 import shutil
+import time
 import argparse
-
+import copy
+import atexit
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -32,6 +31,8 @@ class DuplicateMonitor:
         self.observer = None
         self.handler = None
         self.monitoring = False
+        self.lock_file = None
+        self._check_lock_file()
 
     def show_menu(self):
         """Display main menu"""
@@ -56,7 +57,28 @@ class DuplicateMonitor:
 
             console.print("Q. 🚪  Quit\n")
 
-            choice = Prompt.ask("Select option", choices=["1","2","3","4","5","6","7","8","Q","q"], case_sensitive=False)
+            # Allow Enter/Escape to refresh menu when monitoring
+            valid_choices = ["1","2","3","4","5","6","7","8","Q","q"]
+            if self.monitoring:
+                console.print("[dim]Press Enter to refresh menu while monitoring[/dim]\n")
+            
+            choice = Prompt.ask("Select option", default="")
+            
+            # Handle empty input (Enter key)
+            if not choice:
+                if self.monitoring:
+                    continue  # Redisplay menu
+                else:
+                    console.print("[yellow]Please select an option[/yellow]")
+                    input("\nPress Enter to continue...")
+                    continue
+            
+            # Validate choice
+            if choice not in valid_choices:
+                console.print(f"[red]Invalid option: {choice}[/red]")
+                input("\nPress Enter to continue...")
+                continue
+                
             choice = choice.upper()
 
             if choice == "1":
@@ -153,7 +175,7 @@ class DuplicateMonitor:
             return
 
         idx = IntPrompt.ask("Enter folder number to remove", 
-                            default=0, show_default=False)
+                           default=0, show_default=False)
         if 1 <= idx <= len(folders):
             removed = folders.pop(idx - 1)
             self.config.set("watched_folders", folders)
@@ -168,7 +190,7 @@ class DuplicateMonitor:
             return
 
         idx = IntPrompt.ask("Enter folder number to edit", 
-                            default=0, show_default=False)
+                           default=0, show_default=False)
         if 1 <= idx <= len(folders):
             old_path = folders[idx - 1]
             console.print(f"\nCurrent path: {old_path}")
@@ -205,7 +227,7 @@ class DuplicateMonitor:
         # Dry run mode
         console.print("[bold]Test Mode:[/bold]")
         dry_run = Confirm.ask("Enable dry run mode? (test without moving files)", 
-                                default=self.config.get("dry_run", False))
+                             default=self.config.get("dry_run", False))
         self.config.set("dry_run", dry_run)
 
         if dry_run:
@@ -232,7 +254,7 @@ class DuplicateMonitor:
             
             while True:
                 time_str = Prompt.ask("Time window for duplicates", 
-                                        default=current_formatted)
+                                     default=current_formatted)
                 seconds = parse_time_window(time_str)
                 if seconds:
                     self.config.set("time_window", seconds)
@@ -243,14 +265,14 @@ class DuplicateMonitor:
 
         # Hash verification (optional)
         use_hash = Confirm.ask("Enable hash verification? (more accurate but slower)", 
-                                default=self.config.get("use_hash"))
+                               default=self.config.get("use_hash"))
         self.config.set("use_hash", use_hash)
 
         if use_hash:
             console.print("\nHash algorithms: md5 (fast), sha256 (secure), sha512 (most secure)")
             algo = Prompt.ask("Select hash algorithm", 
-                                default=self.config.get("hash_algorithm"),
-                                choices=["md5", "sha1", "sha256", "sha512"])
+                             default=self.config.get("hash_algorithm"),
+                             choices=["md5", "sha1", "sha256", "sha512"])
             self.config.set("hash_algorithm", algo)
 
         # Check interval
@@ -269,7 +291,7 @@ class DuplicateMonitor:
         if change_quarantine:
             console.print("[dim]Tip: Choose a location outside of Dropbox/OneDrive/iCloud[/dim]")
             quarantine = Prompt.ask("Quarantine folder path",
-                                    default=current_quarantine)
+                                   default=current_quarantine)
             quarantine = clean_path(quarantine)
 
             # Check if it's inside cloud folders
@@ -289,8 +311,8 @@ class DuplicateMonitor:
         console.print("\n[bold]Logging Settings:[/bold]")
         console.print("Log levels: DEBUG (verbose), INFO (normal), WARNING (important only)")
         log_level = Prompt.ask("Log level", 
-                                default=self.config.get("log_level", "INFO"),
-                                choices=["DEBUG", "INFO", "WARNING"])
+                              default=self.config.get("log_level", "INFO"),
+                              choices=["DEBUG", "INFO", "WARNING"])
         self.config.set("log_level", log_level)
 
         max_size = IntPrompt.ask("Max log file size (MB)",
@@ -360,7 +382,7 @@ class DuplicateMonitor:
         table.add_row("", "")  # Empty row for spacing
         table.add_row("Check Interval", f"{self.config.get('check_interval')} seconds")
         table.add_row("Auto-delete After", f"{self.config.get('delete_after_days')} days" 
-                        if self.config.get('delete_after_days') > 0 else "Never")
+                      if self.config.get('delete_after_days') > 0 else "Never")
         table.add_row("Log Level", self.config.get("log_level", "INFO"))
         table.add_row("Log Max Size", f"{self.config.get('log_max_size', 10)} MB")
 
@@ -391,6 +413,13 @@ class DuplicateMonitor:
             input("\nPress Enter to continue...")
             return
 
+        # Create monitor lock
+        if not self._create_monitor_lock():
+            console.print("[red]Another instance is already monitoring![/red]")
+            console.print("[yellow]Only one monitoring instance can run at a time.[/yellow]")
+            input("\nPress Enter to continue...")
+            return
+
         console.print("[yellow]Starting monitor...[/yellow]")
 
         if self.config.get("dry_run", False):
@@ -411,7 +440,7 @@ class DuplicateMonitor:
         self.monitoring = True
         console.print("\n[green]Monitor started successfully![/green]")
         console.print("[dim]Note: Only monitoring NEW files created while running[/dim]")
-        input("\nPress Enter to continue...")
+        console.print("[dim]Press Enter at the menu to refresh display[/dim]\n")
 
     def stop_monitoring(self):
         """Stop the file system monitor"""
@@ -420,8 +449,61 @@ class DuplicateMonitor:
             self.observer.stop()
             self.observer.join()
             self.monitoring = False
+            self._release_monitor_lock()
             console.print("[green]Monitor stopped.[/green]")
             input("\nPress Enter to continue...")
+
+    def _check_lock_file(self):
+        """Check for existing lock file on startup"""
+        lock_path = os.path.join(self.config.config_dir, "monitor.lock")
+        if os.path.exists(lock_path):
+            # Check if lock is stale (older than 1 hour)
+            try:
+                mtime = os.path.getmtime(lock_path)
+                age = time.time() - mtime
+                if age > 3600:  # 1 hour
+                    console.print("[yellow]Found stale lock file, removing...[/yellow]")
+                    os.remove(lock_path)
+            except:
+                pass
+
+    def _create_monitor_lock(self) -> bool:
+        """Create a lock file for monitoring"""
+        lock_path = os.path.join(self.config.config_dir, "monitor.lock")
+        if os.path.exists(lock_path):
+            # Check if it's current
+            try:
+                with open(lock_path, 'r') as f:
+                    pid = f.read().strip()
+                # Check if process is still running
+                try:
+                    os.kill(int(pid), 0)
+                    return False  # Process exists
+                except (OSError, ValueError):
+                    # Process doesn't exist, remove stale lock
+                    os.remove(lock_path)
+            except:
+                return False
+        
+        # Create lock file
+        try:
+            with open(lock_path, 'w') as f:
+                f.write(str(os.getpid()))
+            self.lock_file = lock_path
+            # Register cleanup
+            atexit.register(self._release_monitor_lock)
+            return True
+        except:
+            return False
+
+    def _release_monitor_lock(self):
+        """Release the monitor lock"""
+        if self.lock_file and os.path.exists(self.lock_file):
+            try:
+                os.remove(self.lock_file)
+                self.lock_file = None
+            except:
+                pass
 
     def clean_existing_duplicates(self):
         """One-shot cleanup of existing duplicate files"""
@@ -460,7 +542,7 @@ class DuplicateMonitor:
             
             while True:
                 time_str = Prompt.ask("Time window for existing files", 
-                                        default=current_formatted)
+                                     default=current_formatted)
                 seconds = parse_time_window(time_str)
                 if seconds:
                     temp_config.set("time_window", seconds)
@@ -917,11 +999,13 @@ def main():
         description='Duplicate File Preventer - Prevents duplicate files from syncing to cloud storage'
     )
     parser.add_argument('--dry-run', '-d', action='store_true', 
-                        help='Run in test mode without moving files')
+                       help='Run in test mode without moving files')
     parser.add_argument('--config', '-c', 
-                        help='Path to config file (default: platform-specific)')
+                       help='Path to config file (default: platform-specific)')
     parser.add_argument('--start', '-s', action='store_true', 
-                        help='Start monitoring immediately')
+                       help='Start monitoring immediately')
+    parser.add_argument('--show-log', '-l', action='store_true',
+                       help='Show recent log entries and exit')
     args = parser.parse_args()
 
     console.print("\n[bold cyan]Duplicate File Preventer[/bold cyan]")
@@ -935,6 +1019,30 @@ def main():
         monitor = DuplicateMonitor(custom_config)
     else:
         monitor = DuplicateMonitor()
+
+    # Handle --show-log
+    if args.show_log:
+        log_file = monitor.config.get("log_file")
+        if os.path.exists(log_file):
+            console.print("[bold]Recent Log Entries:[/bold]\n")
+            with open(log_file, 'r') as f:
+                lines = f.readlines()
+                # Show last 50 lines
+                for line in lines[-50:]:
+                    line = line.strip()
+                    if "ERROR" in line or "FAILED" in line:
+                        console.print(f"[red]{line}[/red]")
+                    elif "WARNING" in line:
+                        console.print(f"[yellow]{line}[/yellow]")
+                    elif "DUPLICATE CONFIRMED" in line or "QUARANTINED" in line:
+                        console.print(f"[green]{line}[/green]")
+                    elif "DRY RUN" in line:
+                        console.print(f"[cyan]{line}[/cyan]")
+                    else:
+                        console.print(line)
+        else:
+            console.print("[yellow]No log file found[/yellow]")
+        return  # Exit after showing log
 
     # Apply CLI arguments
     if args.dry_run:

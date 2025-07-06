@@ -20,6 +20,7 @@ from rich.table import Table
 from .config import Config
 from .duplicate_handler import DuplicateHandler
 from .utils import clean_path, format_size, is_cloud_folder, parse_time_window, format_time_window
+from ._version import __version__
 
 console = Console()
 
@@ -38,12 +39,13 @@ class DuplicateMonitor:
         """Display main menu"""
         while True:
             console.clear()
-            console.print("\n[bold cyan]═══ Duplicate File Preventer ═══[/bold cyan]\n")
+            console.print(f"\n[bold cyan]═══ Duplicate File Preventer v{__version__} ═══[/bold cyan]\n")
 
             # Show current status
             status = "[green]●[/green] Active" if self.monitoring else "[red]●[/red] Stopped"
             dry_run = " [cyan](DRY RUN)[/cyan]" if self.config.get("dry_run", False) else ""
-            console.print(f"Status: {status}{dry_run}\n")
+            console.print(f"Status: {status}{dry_run}")
+            console.print("[dim]Auto-save: Enabled[/dim]\n")
 
             # Menu options
             console.print("1. 📁  Manage watched folders")
@@ -554,22 +556,39 @@ class DuplicateMonitor:
                                      default=current_formatted)
                 seconds = parse_time_window(time_str)
                 if seconds:
-                    temp_config.set("time_window", seconds)
+                    temp_config.config["time_window"] = seconds
                     console.print(f"[green]Using time window: {format_time_window(seconds)}[/green]")
                     break
                 else:
                     console.print("[red]Invalid format. Use: 5m, 2h, 3d, 1w, 2mo, 1y[/red]")
         else:
-            temp_config.set("check_time", False)
+            temp_config.config["check_time"] = False
+        
+        # Ask about hash verification
+        current_hash = temp_config.get("use_hash", False)
+        console.print(f"\nCurrent hash verification: {'ON' if current_hash else 'OFF'}")
+        use_hash = Confirm.ask("Use hash verification for this scan?", default=current_hash)
+        temp_config.config["use_hash"] = use_hash
+        
+        if use_hash:
+            algo = temp_config.get("hash_algorithm", "sha256")
+            console.print(f"[dim]Using {algo.upper()} algorithm[/dim]")
         
         # Dry run option
         dry_run = Confirm.ask("\nRun in dry-run mode?", default=True)
-        temp_config.set("dry_run", dry_run)
+        temp_config.config["dry_run"] = dry_run
         
         if dry_run:
             console.print("[cyan]DRY RUN - No files will be moved[/cyan]")
         else:
             console.print("[yellow]Files WILL be moved to quarantine[/yellow]")
+        
+        # Show detection summary
+        console.print("\n[bold]Detection settings for this scan:[/bold]")
+        console.print(f"  • File size check: ON")
+        console.print(f"  • Filename pattern: -1, -2, etc.")
+        console.print(f"  • Time window: {'ON (' + format_time_window(temp_config.get('time_window')) + ')' if temp_config.get('check_time') else 'OFF'}")
+        console.print(f"  • Hash verification: {'ON (' + temp_config.get('hash_algorithm').upper() + ')' if temp_config.get('use_hash') else 'OFF'}")
         
         if not Confirm.ask("\nProceed with scan?", default=True):
             return

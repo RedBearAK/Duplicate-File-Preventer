@@ -52,13 +52,12 @@ class DuplicateMonitor:
             console.print("4. ▶️   Start monitoring" if not self.monitoring else "4. ⏸️   Stop monitoring")
             console.print("5. 🗑️   View quarantine")
             console.print("6. 📊  View logs & statistics")
-            console.print("7. 💾  Save configuration")
-            console.print("8. 🧹  Clean existing duplicates\n")
+            console.print("7. 🧹  Clean existing duplicates\n")
 
             console.print("Q. 🚪  Quit\n")
 
             # Allow Enter/Escape to refresh menu when monitoring
-            valid_choices = ["1","2","3","4","5","6","7","8","Q","q"]
+            valid_choices = ["1","2","3","4","5","6","7","Q","q"]
             if self.monitoring:
                 console.print("[dim]Press Enter to refresh menu while monitoring[/dim]\n")
             
@@ -94,8 +93,6 @@ class DuplicateMonitor:
             elif choice == "6":
                 self.view_statistics()
             elif choice == "7":
-                self.config.save_config()
-            elif choice == "8":
                 self.clean_existing_duplicates()
             elif choice == "Q":
                 if self.monitoring:
@@ -158,6 +155,7 @@ class DuplicateMonitor:
                 folders.append(path)
                 self.config.set("watched_folders", folders)
                 console.print(f"[green]Added: {path}[/green]")
+                console.print("[dim]Configuration auto-saved[/dim]")
 
                 # Check if it's in Dropbox
                 if "Dropbox" in path:
@@ -319,7 +317,7 @@ class DuplicateMonitor:
                                 default=self.config.get("log_max_size", 10))
         self.config.set("log_max_size", max_size)
 
-        console.print("\n[green]Settings updated![/green]")
+        console.print("\n[green]Settings updated and saved![/green]")
 
         # Show summary
         console.print("\n[bold]Current Detection Logic:[/bold]")
@@ -395,6 +393,17 @@ class DuplicateMonitor:
             for i, folder in enumerate(folders, 1):
                 status = "✓" if os.path.exists(folder) else "✗"
                 console.print(f"  {i}. {status} {folder}")
+
+        # Show auto-save status
+        console.print("\n[dim]Note: All changes are automatically saved[/dim]")
+        
+        # Show last modification time
+        try:
+            mtime = os.path.getmtime(self.config.config_file)
+            last_saved = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+            console.print(f"[dim]Last saved: {last_saved}[/dim]")
+        except:
+            pass
 
         input("\nPress Enter to continue...")
 

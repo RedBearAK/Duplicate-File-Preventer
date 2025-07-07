@@ -9,6 +9,7 @@ import time
 import argparse
 import copy
 import atexit
+import subprocess
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -1052,22 +1053,37 @@ def main():
     if args.show_log:
         log_file = monitor.config.get("log_file")
         if os.path.exists(log_file):
-            console.print("[bold]Recent Log Entries:[/bold]\n")
-            with open(log_file, 'r') as f:
-                lines = f.readlines()
-                # Show last 50 lines
-                for line in lines[-50:]:
+            console.print("[bold]Log File:[/bold] " + log_file)
+            console.print("[dim]Press Ctrl+C to stop following the log[/dim]\n")
+            
+            # Use tail to show last 1000 lines and follow
+            cmd = ['tail', '-n', '1000', '-f', log_file]
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+                
+                # Process each line as it comes
+                for line in proc.stdout:
                     line = line.strip()
-                    if "ERROR" in line or "FAILED" in line:
-                        console.print(f"[red]{line}[/red]")
-                    elif "WARNING" in line:
-                        console.print(f"[yellow]{line}[/yellow]")
-                    elif "DUPLICATE CONFIRMED" in line or "QUARANTINED" in line:
-                        console.print(f"[green]{line}[/green]")
-                    elif "DRY RUN" in line:
-                        console.print(f"[cyan]{line}[/cyan]")
-                    else:
-                        console.print(line)
+                    if line:  # Skip empty lines
+                        if "ERROR" in line or "FAILED" in line:
+                            console.print(f"[red]{line}[/red]")
+                        elif "WARNING" in line:
+                            console.print(f"[yellow]{line}[/yellow]")
+                        elif "DUPLICATE CONFIRMED" in line or "QUARANTINED" in line:
+                            console.print(f"[green]{line}[/green]")
+                        elif "NO DUPLICATE" in line:
+                            console.print(f"[blue]{line}[/blue]")
+                        elif "DRY RUN" in line:
+                            console.print(f"[cyan]{line}[/cyan]")
+                        else:
+                            console.print(line)
+                            
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped following log[/yellow]")
+                proc.terminate()
+                proc.wait()  # Wait for process to actually terminate
+            except FileNotFoundError:
+                console.print("[red]Error: 'tail' command not found. This feature requires tail to be installed.[/red]")
         else:
             console.print("[yellow]No log file found[/yellow]")
         return  # Exit after showing log

@@ -1,8 +1,7 @@
 """
 macOS menu bar front end (rumps). Phase 2 of the handoff.
 
-STATUS: written to the handoff design but NOT yet exercised on a Mac. Treat
-as a starting point, not a shipped feature. The threading contract is the
+STATUS: runs on macOS from Terminal (Phase 2). The threading contract is the
 part that must hold: rumps is touched only from timer/menu callbacks (main
 thread); the engine's watchdog thread only ever touches the queue.
 
@@ -10,24 +9,40 @@ Deliberately minimal: status line, Start/Stop, About/Help, Quit. Settings
 and logs live in the terminal (run `duplicate-preventer` / `--follow-log`).
 """
 
+import os
 import signal
 
 import rumps    # ImportError here is caught by __main__ with a helpful message
 
+from AppKit import NSApp    # PyObjC, installed as a rumps dependency
+
 from duplicate_preventer.engine import Config, Engine, EngineError
 
 
-GLYPH_RUNNING = "🟢"
-GLYPH_PAUSED = "⏸"
-GLYPH_ERROR = "⚠️"
+# Full-colour icons rather than macOS "template" images, so the status corner
+# can be green/red; the sheets are a mid grey that reads on both light and
+# dark menu bars. AppKit picks the @2x file on Retina by naming convention.
+ICON_DIR = os.path.join(os.path.dirname(__file__), "icons")
+ICON_WATCHING = os.path.join(ICON_DIR, "watching.png")
+ICON_PAUSED = os.path.join(ICON_DIR, "paused.png")
+ICON_PROBLEM = os.path.join(ICON_DIR, "problem.png")
 
 TICK_SECONDS = 0.5
+
+
+def bring_to_front():
+    """
+    An unbundled Python launched from Terminal is not the frontmost app, so
+    an NSAlert opens behind everything and the Dock icon bounces instead.
+    Activating first puts the dialog where the user is looking.
+    """
+    NSApp.activateIgnoringOtherApps_(True)
 
 
 class DupePreventerApp(rumps.App):
 
     def __init__(self, engine):
-        super().__init__("DupePrev", title=GLYPH_PAUSED, quit_button=None)
+        super().__init__("DupePrev", icon=ICON_PAUSED, quit_button=None)
         self.engine = engine
         self.status_item = rumps.MenuItem("Status: not monitoring")
         self.status_item.set_callback(None)
@@ -40,6 +55,7 @@ class DupePreventerApp(rumps.App):
         self._tick_timer.start()
 
     def show_about(self, _):
+        bring_to_front()
         rumps.alert(
             title="Duplicate File Preventer",
             message=("This menu controls Start/Stop only.\n\n"
@@ -55,6 +71,7 @@ class DupePreventerApp(rumps.App):
             try:
                 self.engine.start()
             except EngineError as error:
+                bring_to_front()
                 rumps.alert(title="Cannot start", message=str(error))
         self._refresh()
 
@@ -71,16 +88,16 @@ class DupePreventerApp(rumps.App):
     def _refresh(self):
         st = self.engine.status()
         if not st.healthy:
-            self.title = GLYPH_ERROR
+            self.icon = ICON_PROBLEM
             self.status_item.title = f"Problem: {st.last_error or 'see log'}"
         elif st.monitoring:
-            self.title = GLYPH_RUNNING
+            self.icon = ICON_WATCHING
             self.status_item.title = (
                 f"Watching {len(st.watched_folders)} folders - "
                 f"{st.quarantined_session} quarantined this session"
                 + (" (dry run)" if st.dry_run else ""))
         else:
-            self.title = GLYPH_PAUSED
+            self.icon = ICON_PAUSED
             self.status_item.title = "Status: not monitoring"
         self.toggle_item.title = "Stop monitoring" if st.monitoring else "Start monitoring"
 

@@ -475,7 +475,13 @@ shows planted duplicates, exits on Ctrl‑C back to the menu, and falls back to 
 when another process holds the lock; (e) `--follow-log` works on all three platforms
 without `tail`.
 
-**Phase 2 — `--menubar` front end, run from Terminal.**
+**Phase 2 — `--menubar` front end, run from Terminal.** *Done 2026-08-30 on macOS.*
+Icon set (overlapping sheets with a strike; green dot = watching, red square =
+problem, nothing = paused) lives in `frontends/icons/`, full-colour rather than
+template so the status corner can carry colour. Alerts call
+`NSApp.activateIgnoringOtherApps_(True)` first; without it an unbundled Python
+launched from Terminal shows the dialog behind everything and bounces the Dock
+icon. The Dock rocket itself only goes away with the Phase 3 bundle (`LSUIElement`).
 Implement `frontends/menubar.py` as in §2; install with `pip install -e '.[menubar]'`;
 run `python -m duplicate_preventer --menubar` from a terminal. Acceptance: Start/Stop
 from the menu works; planting a duplicate bumps the session count; editing settings
@@ -492,7 +498,7 @@ launch-at-login. Build this bundle **early in the phase** — py2app is historic
 fragile link across Python/macOS upgrades, so prove the build before polishing it.
 
 **Phase 4 — niceties, all optional.** Pause-for-30-minutes timer; throttled summary
-notifications; template icon images instead of emoji glyphs; `--follow-log` polish.
+notifications. (Icons and `--follow-log` done.)
 
 ---
 

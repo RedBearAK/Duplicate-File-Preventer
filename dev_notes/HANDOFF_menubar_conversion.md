@@ -491,8 +491,11 @@ terminal exits cleanly (`engine.stop()` in a `finally`).
 
 **Phase 3 — optional `.app` bundle.** *Done 2026-08-30: `--install-app` in
 `frontends/bundle.py`. Handcrafted, not py2app: `Contents/MacOS/launcher` is a
-shell script that exports PYTHONPATH (the package dir) and execs the recorded
-interpreter with `--menubar`, logging to `~/Library/Logs/DuplicateFilePreventer/`.
+small C program compiled at install time (shell-script fallback) that exports
+PYTHONPATH (the package dir) and spawns the recorded interpreter with `--menubar`
+as a child, logging to `~/Library/Logs/DuplicateFilePreventer/`. It must be a
+real Mach-O and must not exec: that is what makes TCC credit the bundle rather
+than `python3.x` for folder permissions (verified on a Mac).
 `Info.plist` sets `LSUIElement`; `AppIcon.icns` is generated from
 `frontends/icons/app_icon.svg` via Pillow; ad-hoc `codesign` runs when available.
 Idempotent, refreshes a changed interpreter, refuses foreign bundles. Login Items

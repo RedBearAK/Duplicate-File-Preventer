@@ -53,10 +53,10 @@ def quarantine_file(file_path, reason, config):
     Put file_path into quarantine and write its restore sidecar.
     Returns (dest_path, size_bytes). Raises QuarantineError on failure.
 
-    quarantine_method "move" (default) renames/moves the file. "copy_delete"
-    copies it to quarantine, verifies the size, then deletes the original:
-    to a cloud sync client the file was deleted, not moved out of the
-    synced folder, which sidesteps Dropbox's "moved out of Dropbox" prompt.
+    quarantine_method "copy_delete" (default) copies the file to quarantine,
+    verifies the size, then deletes the original: to a cloud sync client the
+    file was deleted, not moved out of the synced folder, so Dropbox's
+    "moved out of Dropbox" prompt never fires. "move" renames it instead.
     """
     dest_path = destination_for(file_path, config)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)

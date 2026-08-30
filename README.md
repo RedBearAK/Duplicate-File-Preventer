@@ -78,7 +78,10 @@ The menu bar icon shows the state (green dot watching, red square stopped,
 yellow triangle problem) and offers Start/Stop; settings and logs stay in the
 terminal and apply live. `--install-app` writes a small bundle that launches
 `--menubar` with the recorded interpreter — no Dock icon, and it can be added
-under System Settings › General › Login Items so it starts at login. Re-run
+under System Settings › General › Login Items so it starts at login. The
+launcher is compiled with the Xcode Command Line Tools if present (so folder
+permission prompts name the app rather than "python3"); without them a shell
+launcher is used and the prompts name the interpreter instead. Re-run
 `--install-app` after rebuilding a venv; it repairs itself. The first time the
 bundle (rather than Terminal) watches Desktop, Documents or Downloads, macOS
 will ask for permission again; that is expected. Launcher output, if anything

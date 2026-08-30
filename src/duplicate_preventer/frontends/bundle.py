@@ -1,19 +1,25 @@
 """
 --install-app: write a macOS .app bundle that launches the menu bar mode.
 
-Not py2app. The bundle is four files and a launcher: a shell script under
-Contents/MacOS that execs the recorded interpreter with
-`-m duplicate_preventer --menubar`, an Info.plist with LSUIElement so
-there is no Dock tile, and the icon. Because it holds no Python of its
-own, it never goes stale with a Python or macOS upgrade; re-run
---install-app after rebuilding a venv and it repairs the recorded path,
-the same way --install-command does for the terminal stub.
+Not py2app. The bundle is an Info.plist with LSUIElement (no Dock tile),
+the icon, and a launcher under Contents/MacOS that runs the recorded
+interpreter with `-m duplicate_preventer --menubar`. Because it holds no
+Python of its own, it never goes stale with a Python or macOS upgrade;
+re-run --install-app after rebuilding a venv and it repairs the recorded
+paths, the same way --install-command does for the terminal stub.
 
-The bundle is what Login Items, Spotlight, and TCC permission grants
-attach to, which is the whole reason it exists.
+The launcher is a tiny compiled C program (launcher_template.c) when a C
+compiler is available, and a shell script otherwise. That matters for
+permissions: macOS attributes folder-access prompts and grants to the
+"responsible" process, and it only credits a real signed Mach-O inside the
+bundle. With a shell-script launcher tccd skips /bin/sh and pins the grant
+to the interpreter binary: the prompt says "python3.12", "Show in Finder"
+opens Homebrew, and every script that interpreter runs shares the grant.
+With the compiled launcher (spawn + wait, never exec) the prompt names the
+app and the grant follows the bundle.
 
-Pure stdlib. Can be generated on any OS (tests do); only codesigning and
-Login Items need a Mac.
+Pure stdlib. The bundle is generated, and the C launcher compiled and run,
+on any POSIX OS by the tests; only codesigning and Login Items need a Mac.
 """
 
 import os
@@ -32,6 +38,7 @@ MARKER = "# duplicate-file-preventer app launcher (managed by --install-app)"
 LOG_RELATIVE = "Library/Logs/DuplicateFilePreventer/launcher.log"
 
 ICON_SOURCE = os.path.join(os.path.dirname(__file__), "icons", "AppIcon.icns")
+C_TEMPLATE = os.path.join(os.path.dirname(__file__), "launcher_template.c")
 
 
 def default_app_dir():
@@ -49,16 +56,12 @@ def package_src_dir():
 
 
 def launcher_text(interpreter, src_dir):
-    # The interpreter is run as a CHILD, not exec'd. After an exec the process
-    # image is python3.x and macOS names the permission prompts after it
-    # ("python3.12 would like to access..."), and the TCC grant attaches to the
-    # interpreter binary. As a child of the bundle's own executable, the bundle
-    # is the responsible process: prompts carry the app name and grants attach
-    # to the bundle. Signals are forwarded so Quit/logout still stop the engine.
+    """Shell fallback: same behaviour as the C launcher, weaker TCC attribution."""
     return (
         "#!/bin/sh\n"
         f"{MARKER}\n"
         "# Regenerate with:  duplicate-file-preventer --install-app\n"
+        "cd /\n"
         f"export PYTHONPATH=\"{src_dir}${{PYTHONPATH:+:$PYTHONPATH}}\"\n"
         f"LOG=\"$HOME/{LOG_RELATIVE}\"\n"
         "mkdir -p \"$(dirname \"$LOG\")\"\n"
@@ -68,6 +71,42 @@ def launcher_text(interpreter, src_dir):
         "wait \"$child\"\n"
         "exit $?\n"
     )
+
+
+def c_escape(text):
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def launcher_c_source(interpreter, src_dir):
+    with open(C_TEMPLATE, "r", encoding="utf-8") as handle:
+        template = handle.read()
+    return (template.replace("@@MARKER@@", MARKER)
+                    .replace("@@INTERPRETER@@", c_escape(interpreter))
+                    .replace("@@SRC_DIR@@", c_escape(src_dir))
+                    .replace("@@LOG_RELATIVE@@", LOG_RELATIVE))
+
+
+def c_compiler():
+    """Path to a usable C compiler, or None."""
+    if sys.platform == "darwin":
+        probe = subprocess.run(["xcode-select", "-p"], capture_output=True)
+        if probe.returncode != 0:
+            return None          # the cc shim would only pop the CLT installer
+    return shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+
+
+def compile_launcher(source_path, output_path, out):
+    cc = c_compiler()
+    if not cc:
+        return False
+    cmd = [cc, "-O2", "-Wall", "-o", output_path, source_path]
+    if sys.platform == "darwin":
+        cmd[1:1] = ["-mmacosx-version-min=11.0"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        out(f"C launcher build failed, using shell launcher instead:\n{result.stderr.strip()}")
+        return False
+    return True
 
 
 def info_plist(name=APP_NAME):
@@ -86,26 +125,44 @@ def info_plist(name=APP_NAME):
     }
 
 
+def _launcher_sources(path):
+    """Text files that identify the bundle as ours: the C source if kept, else the script."""
+    macos = os.path.join(path, "Contents", "MacOS")
+    return [os.path.join(macos, "launcher.c"), os.path.join(macos, "launcher")]
+
+
 def is_our_bundle(path):
-    launcher = os.path.join(path, "Contents", "MacOS", "launcher")
-    try:
-        with open(launcher, "r", encoding="utf-8", errors="replace") as handle:
-            return MARKER in handle.read(512)
-    except OSError:
-        return False
+    for candidate in _launcher_sources(path):
+        try:
+            with open(candidate, "r", encoding="utf-8", errors="replace") as handle:
+                if MARKER in handle.read(512):
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def launcher_kind(path):
+    """'compiled', 'script', or None."""
+    if not is_our_bundle(path):
+        return None
+    return "compiled" if os.path.isfile(_launcher_sources(path)[0]) else "script"
 
 
 def recorded_interpreter(path):
-    launcher = os.path.join(path, "Contents", "MacOS", "launcher")
     if not is_our_bundle(path):
         return None
-    try:
-        with open(launcher, "r", encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                if line.startswith('"') and '-m duplicate_preventer' in line:
-                    return line.split('"')[1]
-    except OSError:
-        pass
+    for candidate in _launcher_sources(path):
+        try:
+            with open(candidate, "r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    stripped = line.strip(" *")
+                    if stripped.startswith('interpreter="'):
+                        return stripped.split('"')[1]
+                    if line.startswith('"') and '-m duplicate_preventer' in line:
+                        return line.split('"')[1]
+        except OSError:
+            continue
     return None
 
 
@@ -113,7 +170,8 @@ def codesign(path, out):
     """Ad-hoc sign so the bundle has a stable identity for TCC. Mac only."""
     if sys.platform != "darwin" or not shutil.which("codesign"):
         return False
-    result = subprocess.run(["codesign", "--force", "--sign", "-", path],
+    result = subprocess.run(["codesign", "--force", "--deep", "--sign", "-",
+                             "--identifier", BUNDLE_ID, path],
                             capture_output=True, text=True)
     if result.returncode != 0:
         out(f"codesign failed (bundle still works, TCC grants may not stick): "
@@ -144,8 +202,18 @@ def install_app(app_dir=None, interpreter=None, src_dir=None, name=APP_NAME, out
     os.makedirs(resources, exist_ok=True)
 
     launcher = os.path.join(macos, "launcher")
-    with open(launcher, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(launcher_text(interpreter, src_dir))
+    source = os.path.join(macos, "launcher.c")
+    for stale in (launcher, source):
+        if os.path.exists(stale):
+            os.remove(stale)
+
+    with open(source, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(launcher_c_source(interpreter, src_dir))
+    kind = "compiled" if compile_launcher(source, launcher, out) else "script"
+    if kind == "script":
+        os.remove(source)
+        with open(launcher, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(launcher_text(interpreter, src_dir))
     os.chmod(launcher, os.stat(launcher).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     with open(os.path.join(contents, "Info.plist"), "wb") as handle:
@@ -161,6 +229,11 @@ def install_app(app_dir=None, interpreter=None, src_dir=None, name=APP_NAME, out
     out(f"{verb} app bundle: {path}")
     out(f"  interpreter: {interpreter}")
     out(f"  package dir: {src_dir}")
+    out(f"  launcher:    {kind}")
+    if kind == "script":
+        out("  (no C compiler found: macOS will attribute folder permissions to the")
+        out("   interpreter instead of the app; install the Xcode Command Line Tools")
+        out("   with `xcode-select --install` and re-run --install-app to fix that)")
     if codesign(path, out):
         out("  signed: ad-hoc")
 

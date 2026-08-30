@@ -61,11 +61,17 @@ repo imported them.
 
 - `on_moved` is handled: a rename into the `-N` pattern (Finder Duplicate then
   rename; temp-then-rename writers) is checked like a create.
-- Bundle launcher runs the interpreter as a child instead of exec'ing it, so
-  macOS names permission prompts after the app and attaches the TCC grant to
-  the bundle rather than to `python3.x`.
-- `quarantine_method` config key: `move` (default) or `copy_delete`, the latter
-  to avoid Dropbox's "moved out of Dropbox" prompt. In the settings screen.
+- Bundle launcher is a compiled C program (`frontends/launcher_template.c`,
+  built by `--install-app` with the system compiler) that spawns the interpreter
+  as a child and waits. Tested on a Mac: a shell-script launcher, even one that
+  spawns rather than execs, still gets the TCC grant pinned to the interpreter
+  path (`identifier_type=Path, .../python3.12`), because tccd will not credit
+  /bin/sh as the responsible process. A signed Mach-O inside the bundle is what
+  it credits. Shell script remains as the fallback when no compiler is present,
+  with a warning.
+- `quarantine_method` config key: `copy_delete` (default) or `move`. Confirmed
+  on a Mac: Dropbox prompts on files moved out of its folder, not on deletions,
+  so copy-verify-delete keeps the tool silent. In the settings screen.
 
 ## New flags
 

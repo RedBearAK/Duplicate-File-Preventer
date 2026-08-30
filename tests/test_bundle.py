@@ -25,16 +25,30 @@ from pathlib import Path
 from _helpers import Sandbox, check, run_suite
 
 from duplicate_preventer._version import __version__
+from duplicate_preventer.frontends import bundle as bundle_module
 from duplicate_preventer.frontends.bundle import (
     MARKER,
     APP_NAME,
     BUNDLE_ID,
+    c_compiler,
     install_app,
+    launcher_kind,
     is_our_bundle,
     uninstall_app,
     package_src_dir,
     recorded_interpreter,
 )
+
+
+class no_compiler:
+    """Force the shell-script fallback for a test."""
+
+    def __enter__(self):
+        self._saved = bundle_module.c_compiler
+        bundle_module.c_compiler = lambda: None
+
+    def __exit__(self, *_exc):
+        bundle_module.c_compiler = self._saved
 
 
 def collect():
@@ -68,52 +82,124 @@ def test_bundle_structure():
         return passed
 
 
-def test_launcher_records_interpreter_and_package_dir():
-    print("\nTesting the launcher script...")
+def test_compiled_launcher_when_a_compiler_exists():
+    print("\nTesting the compiled launcher...")
+    if not c_compiler():
+        print("  - no C compiler here; skipped (shell fallback is tested separately)")
+        return True
     with tempfile.TemporaryDirectory() as tmp:
-        path = install_app(tmp, out=lambda _: None)
-        launcher = Path(path) / "Contents" / "MacOS" / "launcher"
-        text = launcher.read_text()
-        passed = check(text.startswith("#!/bin/sh") and MARKER in text, "sh script with marker",
-                       f"text:\n{text}")
-        passed &= check(f'"{sys.executable}" -m duplicate_preventer --menubar' in text and "exec " not in text,
-                        "runs this interpreter with --menubar as a child (no exec)", f"text:\n{text}")
-        passed &= check("wait " in text and "trap " in text, "waits on the child and forwards signals",
-                        "no wait/trap")
-        passed &= check(package_src_dir() in text and "PYTHONPATH" in text,
-                        f"PYTHONPATH includes {package_src_dir()}", "package dir not exported")
-        passed &= check("Library/Logs/DuplicateFilePreventer" in text, "launcher logs somewhere findable",
-                        "no launcher log")
-        if os.name != "nt":
-            passed &= check(os.stat(launcher).st_mode & stat.S_IXUSR, "executable", "not executable")
+        lines, out = collect()
+        path = install_app(tmp, out=out)
+        macos = Path(path) / "Contents" / "MacOS"
+        passed = check(launcher_kind(path) == "compiled" and any("launcher:    compiled" in l for l in lines),
+                       "compiled launcher built", f"kind={launcher_kind(path)} output={lines}")
+        head = (macos / "launcher").read_bytes()[:4]
+        passed &= check(head in (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"),
+                        f"launcher is a native executable ({head!r})", f"launcher header {head!r}")
+        source = (macos / "launcher.c").read_text()
+        passed &= check(MARKER in source and f'interpreter="{sys.executable}"' in source
+                        and f'src_dir="{package_src_dir()}"' in source,
+                        "source kept beside it records interpreter and package dir", "source missing paths")
         passed &= check(recorded_interpreter(path) == sys.executable, "interpreter readable back",
                         f"recorded: {recorded_interpreter(path)}")
+        passed &= check(not any("no C compiler" in l for l in lines), "no fallback warning", f"{lines}")
         return passed
 
 
-def test_launcher_runs_and_reaches_the_dispatcher():
+def test_shell_launcher_fallback_without_compiler():
+    print("\nTesting the shell launcher fallback...")
+    with tempfile.TemporaryDirectory() as tmp, no_compiler():
+        lines, out = collect()
+        path = install_app(tmp, out=out)
+        launcher = Path(path) / "Contents" / "MacOS" / "launcher"
+        text = launcher.read_text()
+        passed = check(launcher_kind(path) == "script" and text.startswith("#!/bin/sh") and MARKER in text,
+                       "sh script with marker", f"kind={launcher_kind(path)} text:\n{text}")
+        passed &= check(f'"{sys.executable}" -m duplicate_preventer --menubar' in text and "exec " not in text,
+                        "runs this interpreter with --menubar as a child (no exec)", f"text:\n{text}")
+        passed &= check("wait " in text and "trap " in text and "cd /" in text,
+                        "waits on the child, forwards signals, cd /", "missing wait/trap/cd")
+        passed &= check(package_src_dir() in text and "PYTHONPATH" in text,
+                        f"PYTHONPATH includes {package_src_dir()}", "package dir not exported")
+        passed &= check(not (Path(path) / "Contents" / "MacOS" / "launcher.c").exists(),
+                        "no stale C source", "launcher.c left behind")
+        passed &= check(any("no C compiler" in l for l in lines), "warns about attribution", f"{lines}")
+        passed &= check(recorded_interpreter(path) == sys.executable, "interpreter readable back",
+                        f"recorded: {recorded_interpreter(path)}")
+        if os.name != "nt":
+            passed &= check(os.stat(launcher).st_mode & stat.S_IXUSR, "executable", "not executable")
+        return passed
+
+
+def _run_launcher(path, tmp):
+    launcher = Path(path) / "Contents" / "MacOS" / "launcher"
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["HOME"] = tmp                      # keep the launcher log inside the sandbox
+    result = subprocess.run([str(launcher)], capture_output=True, text=True, env=env, timeout=30)
+    log = Path(tmp) / "Library" / "Logs" / "DuplicateFilePreventer" / "launcher.log"
+    return result, (log.read_text() if log.exists() else "")
+
+
+def test_launchers_run_and_reach_the_dispatcher():
     """
-    Run the launcher with sh on a non-Mac: it execs --menubar, which the
-    dispatcher refuses off macOS with a clear message. That proves the
-    script, PYTHONPATH and exec line are all right up to the platform gate.
+    Run each launcher on a non-Mac: it starts --menubar, which the
+    dispatcher refuses off macOS with a clear message into the launcher
+    log. That proves PYTHONPATH, the spawn and the log redirection.
     """
-    print("\nTesting the launcher executes...")
+    print("\nTesting the launchers execute...")
     if os.name == "nt":
         print("  - skipped on Windows")
         return True
+    if sys.platform == "darwin":
+        print("  - on macOS this would start the menu bar app; skipped")
+        return True
+    passed = True
+    for label, ctx in [("compiled", None), ("script", no_compiler())]:
+        with tempfile.TemporaryDirectory() as tmp:
+            if ctx is not None:
+                ctx.__enter__()
+            try:
+                if label == "compiled" and not c_compiler():
+                    print("  - no C compiler; compiled launcher skipped")
+                    continue
+                path = install_app(tmp, out=lambda _: None)
+                result, log_text = _run_launcher(path, tmp)
+            finally:
+                if ctx is not None:
+                    ctx.__exit__(None, None, None)
+            passed &= check("only available on macOS" in log_text,
+                            f"{label}: reached the dispatcher's platform gate via the log",
+                            f"{label}: rc={result.returncode} log={log_text!r} err={result.stderr[-300:]}")
+            passed &= check(result.returncode == 1, f"{label}: child exit code propagated (1)",
+                            f"{label}: rc={result.returncode}")
+    return passed
+
+
+def test_compiled_launcher_forwards_sigterm():
+    """SIGTERM to the launcher must reach the child, or Quit/logout would orphan the engine."""
+    print("\nTesting signal forwarding...")
+    if os.name == "nt" or sys.platform == "darwin" or not c_compiler():
+        print("  - skipped here")
+        return True
+    import signal, time
     with tempfile.TemporaryDirectory() as tmp:
-        path = install_app(tmp, out=lambda _: None)
+        # Point the launcher at a fake interpreter that sleeps, so it stays alive.
+        fake = Path(tmp) / "fake_python"
+        fake.write_text("#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n")
+        fake.chmod(0o755)
+        path = install_app(tmp, interpreter=str(fake), out=lambda _: None)
         launcher = Path(path) / "Contents" / "MacOS" / "launcher"
-        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-        env["HOME"] = tmp                      # keep the launcher log inside the sandbox
-        result = subprocess.run(["sh", str(launcher)], capture_output=True, text=True, env=env, timeout=30)
-        log = Path(tmp) / "Library" / "Logs" / "DuplicateFilePreventer" / "launcher.log"
-        log_text = log.read_text() if log.exists() else ""
-        if sys.platform == "darwin":
-            print("  - on macOS this would start the menu bar app; only checking it launched")
-            return check(result.returncode in (0, 1), "launcher ran", f"rc={result.returncode}")
-        return check("only available on macOS" in log_text, "reached the dispatcher's platform gate via the log",
-                     f"rc={result.returncode} log={log_text!r} err={result.stderr[-300:]}")
+        env = dict(os.environ)
+        env["HOME"] = tmp
+        proc = subprocess.Popen([str(launcher)], env=env)
+        time.sleep(0.5)
+        proc.send_signal(signal.SIGTERM)
+        try:
+            rc = proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            return check(False, "", "launcher did not exit after SIGTERM (child not signalled)")
+        return check(rc == 143, f"launcher exited with the child's code ({rc})", f"rc={rc}")
 
 
 def test_reinstall_refreshes_interpreter_and_never_touches_foreign_bundle():
@@ -176,8 +262,10 @@ def test_cli_flags_reach_the_bundle_writer():
 def main():
     return run_suite("bundle tests", [
         test_bundle_structure,
-        test_launcher_records_interpreter_and_package_dir,
-        test_launcher_runs_and_reaches_the_dispatcher,
+        test_compiled_launcher_when_a_compiler_exists,
+        test_shell_launcher_fallback_without_compiler,
+        test_launchers_run_and_reach_the_dispatcher,
+        test_compiled_launcher_forwards_sigterm,
         test_reinstall_refreshes_interpreter_and_never_touches_foreign_bundle,
         test_uninstall_removes_own_bundle,
         test_cli_flags_reach_the_bundle_writer,

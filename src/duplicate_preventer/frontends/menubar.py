@@ -14,7 +14,7 @@ import signal
 
 import rumps    # ImportError here is caught by __main__ with a helpful message
 
-from AppKit import NSApp    # PyObjC, installed as a rumps dependency
+from rumps.rumps import NSApplication    # rumps already imported AppKit; reuse it
 
 from duplicate_preventer.engine import Config, Engine, EngineError
 
@@ -31,13 +31,24 @@ ICON_PROBLEM = os.path.join(ICON_DIR, "problem.png")
 TICK_SECONDS = 0.5
 
 
+# NSApplicationActivationPolicyAccessory: no Dock tile, no main menu bar.
+# The same thing LSUIElement=true does for a bundle, but set from code so
+# it also applies when launched from Terminal.
+ACTIVATION_POLICY_ACCESSORY = 1
+
+
+def become_accessory_app():
+    NSApplication.sharedApplication().setActivationPolicy_(ACTIVATION_POLICY_ACCESSORY)
+
+
 def bring_to_front():
     """
-    An unbundled Python launched from Terminal is not the frontmost app, so
-    an NSAlert opens behind everything and the Dock icon bounces instead.
-    Activating first puts the dialog where the user is looking.
+    A process launched from Terminal is not the frontmost app, so an NSAlert
+    opens behind everything and the Dock icon bounces instead. Activating
+    first puts the dialog where the user is looking. With the accessory
+    policy this raises the dialog without taking over the menu bar.
     """
-    NSApp.activateIgnoringOtherApps_(True)
+    NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
 
 class DupePreventerApp(rumps.App):
@@ -105,6 +116,7 @@ class DupePreventerApp(rumps.App):
 
 def run_menubar(config=None):
     engine = Engine(config or Config())
+    become_accessory_app()
     app = DupePreventerApp(engine)
 
     def on_signal(_signum, _frame):

@@ -40,7 +40,7 @@ Repository = "https://github.com/RedBearAK/Duplicate-File-Preventer"
 Issues = "https://github.com/RedBearAK/Duplicate-File-Preventer/issues"
 
 [project.scripts]
-duplicate-preventer = "duplicate_preventer.__main__:main"
+duplicate-file-preventer = "duplicate_preventer.__main__:main"
 
 [project.optional-dependencies]
 # macOS menu bar front end. rumps pulls in PyObjC; the marker keeps it off

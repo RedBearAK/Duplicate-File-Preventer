@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4F4F6"/><stop offset="1" stop-color="#D9D9DE"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#C9C9CE"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS-style rounded square, inset like Apple's template -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" stroke="#B5B5BA" stroke-width="6"/>
+  <g transform="translate(112,112) scale(40)" fill="none" stroke="#6E6E73" stroke-width="1.35" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M7.5 1.5 H14 L17.5 5 V13.5 H7.5 Z" fill="url(#sheet)"/>
+    <path d="M14 1.5 V5 H17.5"/>
+    <path d="M2 5.5 H9 L12.5 9 V17.5 H2 Z" fill="url(#sheet)"/>
+    <path d="M9 5.5 V9 H12.5"/>
+    <path d="M2.6 16.9 L11.9 7.6" stroke="#D93B30" stroke-width="2.1"/>
+  </g>
+</svg>

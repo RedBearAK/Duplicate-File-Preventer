@@ -15,7 +15,7 @@ pip3 install -r requirements.txt
 python3 -m duplicate_preventer          # interactive menu
 ```
 
-## Install the `duplicate-preventer` command
+## Install the `duplicate-file-preventer` command
 
 Pick one:
 
@@ -25,7 +25,7 @@ pipx install 'git+https://github.com/RedBearAK/Duplicate-File-Preventer'
 
 # From a checkout into a venv you manage, then let the tool put a launcher on PATH:
 python3 -m venv ~/.venvs/dfp && ~/.venvs/dfp/bin/pip install -e .
-~/.venvs/dfp/bin/duplicate-preventer --install-command
+~/.venvs/dfp/bin/duplicate-file-preventer --install-command
 ```
 
 `--install-command` writes a two-line stub into `~/.local/bin` (or `--dir DIR`)
@@ -36,12 +36,12 @@ isn't on your PATH it prints the line to add.
 ## Use
 
 ```bash
-duplicate-preventer                 # interactive menu: folders, settings, logs, quarantine
-duplicate-preventer --start         # monitor in the foreground, events stream to the terminal
-duplicate-preventer --once          # scan the watched folders for existing duplicates, then exit
-duplicate-preventer --once --dry-run
-duplicate-preventer --follow-log    # live log, Ctrl-C to stop
-duplicate-preventer --show-log
+duplicate-file-preventer                 # interactive menu: folders, settings, logs, quarantine
+duplicate-file-preventer --start         # monitor in the foreground, events stream to the terminal
+duplicate-file-preventer --once          # scan the watched folders for existing duplicates, then exit
+duplicate-file-preventer --once --dry-run
+duplicate-file-preventer --follow-log    # live log, Ctrl-C to stop
+duplicate-file-preventer --show-log
 ```
 
 Typical first run: open the menu, add folders (option 1), then either start
@@ -66,16 +66,24 @@ default; slower, but catches same-size-different-content). New files are
 compared only after they have stopped growing, so a large attachment still
 being written is not mistaken for a mismatch.
 
-## macOS menu bar app (optional, in progress)
+## macOS menu bar app (optional)
 
 ```bash
 pip install '.[menubar]'                # pulls in rumps, macOS only
-duplicate-preventer --menubar
+duplicate-file-preventer --menubar      # run it from this terminal
+duplicate-file-preventer --install-app  # or make ~/Applications/Duplicate File Preventer.app
 ```
 
-The menu bar controls Start/Stop and shows health; settings and logs stay in
-the terminal. See `dev_notes/HANDOFF_menubar_conversion.md` for the plan and
-current status.
+The menu bar icon shows the state (green dot watching, red square stopped,
+yellow triangle problem) and offers Start/Stop; settings and logs stay in the
+terminal and apply live. `--install-app` writes a small bundle that launches
+`--menubar` with the recorded interpreter — no Dock icon, and it can be added
+under System Settings › General › Login Items so it starts at login. Re-run
+`--install-app` after rebuilding a venv; it repairs itself. The first time the
+bundle (rather than Terminal) watches Desktop, Documents or Downloads, macOS
+will ask for permission again; that is expected. Launcher output, if anything
+goes wrong before the log file is reachable, lands in
+`~/Library/Logs/DuplicateFilePreventer/launcher.log`.
 
 ## Where things live
 

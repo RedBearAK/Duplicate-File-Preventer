@@ -16,14 +16,14 @@ import sys
 import stat
 
 
-COMMAND_NAME = "duplicate-preventer"
-MARKER = "# duplicate-preventer launcher stub (managed by --install-command)"
+COMMAND_NAME = "duplicate-file-preventer"
+MARKER = "# duplicate-file-preventer launcher stub (managed by --install-command)"
 
 
 def default_bin_dir():
     if os.name == 'nt':
         base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-        return os.path.join(base, 'Programs', 'duplicate-preventer', 'bin')
+        return os.path.join(base, 'Programs', 'duplicate-file-preventer', 'bin')
     return os.path.expanduser('~/.local/bin')
 
 
@@ -33,11 +33,23 @@ def stub_path(bin_dir, name=COMMAND_NAME):
     return os.path.join(bin_dir, name)
 
 
-def stub_text(interpreter):
+def package_src_dir():
+    """Directory that must be on PYTHONPATH for `import duplicate_preventer`."""
+    import duplicate_preventer
+    return os.path.dirname(os.path.dirname(os.path.abspath(duplicate_preventer.__file__)))
+
+
+def stub_text(interpreter, src_dir=None):
+    # PYTHONPATH is set as well as the interpreter so the stub works both for
+    # a pip-installed package and for a bare checkout on PYTHONPATH (the
+    # tech-bin style of launcher). Harmless when the package is installed.
+    src_dir = src_dir or package_src_dir()
     if os.name == 'nt':
         return (f"@echo off\r\nrem {MARKER}\r\n"
+                f"set \"PYTHONPATH={src_dir};%PYTHONPATH%\"\r\n"
                 f"\"{interpreter}\" -m duplicate_preventer %*\r\n")
     return (f"#!/bin/sh\n{MARKER}\n"
+            f"export PYTHONPATH=\"{src_dir}${{PYTHONPATH:+:$PYTHONPATH}}\"\n"
             f"exec \"{interpreter}\" -m duplicate_preventer \"$@\"\n")
 
 
@@ -57,7 +69,7 @@ def recorded_interpreter(path):
     try:
         with open(path, 'r', encoding='utf-8', errors='replace') as handle:
             for line in handle:
-                if '-m duplicate_preventer' in line and '"' in line:
+                if '-m duplicate_preventer' in line and line.lstrip().startswith(('exec "', '"')):
                     return line.split('"')[1]
     except OSError:
         pass

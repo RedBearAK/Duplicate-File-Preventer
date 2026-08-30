@@ -1,12 +1,13 @@
 """
 Entry point and dispatch.
 
-    duplicate-preventer                  interactive menu (settings + logs)
-    duplicate-preventer --start          monitor in the foreground
-    duplicate-preventer --once           scan existing files and exit
-    duplicate-preventer --follow-log     live log
-    duplicate-preventer --menubar        macOS menu bar app (optional extra)
-    duplicate-preventer --install-command
+    duplicate-file-preventer                  interactive menu (settings + logs)
+    duplicate-file-preventer --start          monitor in the foreground
+    duplicate-file-preventer --once           scan existing files and exit
+    duplicate-file-preventer --follow-log     live log
+    duplicate-file-preventer --menubar        macOS menu bar app (optional extra)
+    duplicate-file-preventer --install-command
+    duplicate-file-preventer --install-app   macOS .app bundle for Login Items
 """
 
 import sys
@@ -14,7 +15,8 @@ import platform
 
 
 CLI_FLAGS = ("--start", "-s", "--once", "-o", "--show-log", "-l", "--follow-log", "-f",
-             "--install-command", "--uninstall-command", "--dry-run", "-d",
+             "--install-command", "--uninstall-command", "--install-app", "--uninstall-app",
+             "--dry-run", "-d",
              "--config", "-c", "--version", "-V", "--help", "-h")
 
 

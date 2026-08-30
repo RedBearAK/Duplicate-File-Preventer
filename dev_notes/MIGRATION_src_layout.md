@@ -50,7 +50,7 @@ repo imported them.
 5. **Hot reload.** A running monitor re-reads the config when another process
    saves it (0.5 s poll), restarts the observer if the folder list changed, and
    flags itself unhealthy (without stopping) if the file is unreadable.
-6. **Console script:** one name, `duplicate-preventer`. `duplicate-monitor` is
+6. **Console script:** one name, `duplicate-file-preventer`. `duplicate-monitor` is
    dropped.
 7. **`check_interval`** is kept in the config for compatibility but is no longer
    shown in the settings screen and has no effect.
@@ -60,12 +60,14 @@ repo imported them.
 ## New flags
 
 `--once`, `--follow-log`, `--lines N`, `--install-command [--dir DIR]`,
-`--uninstall-command`, `--menubar`, `--version`.
+`--uninstall-command`, `--install-app [--dir DIR]`, `--uninstall-app`,
+`--menubar`, `--version`.
 
 ## Known gaps / next
 
-- `frontends/menubar.py` is written to the handoff design but has not been run
-  on a Mac. Phase 2 acceptance is still open.
+- `frontends/menubar.py` and `--install-app` run on macOS (Phases 2 and 3 done
+  2026-08-30). Not yet tried: launching the bundle as a Login Item and the TCC
+  re-prompt for protected folders.
 - Watching only handles `on_created`. Apps that write to a temp name and
   rename into place would need `on_moved` (dest) as well; not needed for
   FiltaQuilla as far as is known.

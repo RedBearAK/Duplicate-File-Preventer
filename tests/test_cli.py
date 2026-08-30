@@ -55,7 +55,7 @@ def test_version_and_help_go_through_cli():
     with Sandbox() as box:
         version = run_tool(box, "--version")
         help_text = run_tool(box, "--help")
-        passed = check(version.returncode == 0 and "duplicate-preventer 2" in version.stdout,
+        passed = check(version.returncode == 0 and "duplicate-file-preventer 2" in version.stdout,
                        f"version: {version.stdout.strip()}", f"version failed: {version.stderr}")
         passed &= check(help_text.returncode == 0 and "--follow-log" in help_text.stdout
                         and "--install-command" in help_text.stdout,

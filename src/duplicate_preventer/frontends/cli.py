@@ -21,6 +21,7 @@ from duplicate_preventer.frontends.render import (
     status_summary,
 )
 from duplicate_preventer.frontends.installer import install_command, uninstall_command
+from duplicate_preventer.frontends.bundle import install_app, uninstall_app
 
 
 IDLE_SUMMARY_SECONDS = 300      # --start prints a heartbeat line when idle this long
@@ -29,7 +30,7 @@ RELOAD_POLL_SECONDS = 0.5
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="duplicate-preventer",
+        prog="duplicate-file-preventer",
         description="Duplicate File Preventer - quarantines FiltaQuilla's file-1.ext "
                     "duplicates before they sync to cloud storage. With no flags, "
                     "opens the interactive settings menu.")
@@ -54,9 +55,15 @@ def build_parser():
                       help='write a launcher stub for this command onto your PATH')
     mode.add_argument('--uninstall-command', action='store_true',
                       help='remove the launcher stub written by --install-command')
+    mode.add_argument('--install-app', action='store_true',
+                      help='macOS: write a "Duplicate File Preventer.app" bundle that runs '
+                           '--menubar, for Login Items and Spotlight')
+    mode.add_argument('--uninstall-app', action='store_true',
+                      help='remove the app bundle written by --install-app')
     parser.add_argument('--dir', metavar='DIR',
                         help='with --install-command/--uninstall-command: the bin directory '
-                             '(default: ~/.local/bin)')
+                             '(default: ~/.local/bin); with --install-app/--uninstall-app: '
+                             'the Applications folder (default: ~/Applications)')
     parser.add_argument('--lines', type=int, default=1000, metavar='N',
                         help='with --show-log/--follow-log: how many recent lines (default 1000)')
     return parser
@@ -76,16 +83,22 @@ def run_cli(argv=None, console=None):
     args = build_parser().parse_args(argv)
 
     modes = [args.start, args.once, args.show_log, args.follow_log,
-             args.install_command, args.uninstall_command]
+             args.install_command, args.uninstall_command,
+             args.install_app, args.uninstall_app]
     if sum(bool(m) for m in modes) > 1:
-        console.print("[red]Choose only one of --start, --once, --show-log, "
-                      "--follow-log, --install-command, --uninstall-command[/red]")
+        console.print("[red]Choose only one of --start, --once, --show-log, --follow-log, "
+                      "--install-command, --uninstall-command, --install-app, --uninstall-app[/red]")
         return 2
 
+    plain = lambda text: console.print(text, markup=False, highlight=False)
     if args.install_command:
-        return 0 if install_command(args.dir, out=console.print) else 1
+        return 0 if install_command(args.dir, out=plain) else 1
     if args.uninstall_command:
-        return 0 if uninstall_command(args.dir, out=console.print) else 1
+        return 0 if uninstall_command(args.dir, out=plain) else 1
+    if args.install_app:
+        return 0 if install_app(args.dir, out=plain) else 1
+    if args.uninstall_app:
+        return 0 if uninstall_app(args.dir, out=plain) else 1
 
     config = load_config(args, console)
 

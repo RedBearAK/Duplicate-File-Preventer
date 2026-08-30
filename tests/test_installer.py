@@ -45,6 +45,8 @@ def test_install_writes_executable_stub_with_interpreter():
         text = Path(path).read_text()
         passed &= check(MARKER in text and sys.executable in text and "-m duplicate_preventer" in text,
                         "stub has marker, interpreter, module", f"stub text:\n{text}")
+        passed &= check("PYTHONPATH" in text, "stub exports the package dir on PYTHONPATH",
+                        "stub relies on the package being pip-installed")
         if os.name != "nt":
             passed &= check(os.stat(path).st_mode & stat.S_IXUSR, "executable bit set", "not executable")
         passed &= check(recorded_interpreter(path) == sys.executable, "interpreter readable back",
@@ -61,10 +63,9 @@ def test_stub_actually_runs_the_tool():
         return True
     with tempfile.TemporaryDirectory() as tmp:
         path = install_command(os.path.join(tmp, "bin"), out=lambda _: None)
-        env = dict(os.environ)
-        env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent / "src")
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}   # the stub sets it
         result = subprocess.run([path, "--version"], capture_output=True, text=True, env=env)
-        return check(result.returncode == 0 and "duplicate-preventer" in result.stdout,
+        return check(result.returncode == 0 and "duplicate-file-preventer" in result.stdout,
                      f"stub ran: {result.stdout.strip()}",
                      f"stub failed: rc={result.returncode} {result.stderr[-300:]}")
 
@@ -92,7 +93,7 @@ def test_never_touches_foreign_files():
     with tempfile.TemporaryDirectory() as tmp:
         bin_dir = os.path.join(tmp, "bin")
         os.makedirs(bin_dir)
-        name = "duplicate-preventer" + (".cmd" if os.name == "nt" else "")
+        name = "duplicate-file-preventer" + (".cmd" if os.name == "nt" else "")
         foreign = os.path.join(bin_dir, name)
         Path(foreign).write_text("#!/bin/sh\necho mine\n")
 

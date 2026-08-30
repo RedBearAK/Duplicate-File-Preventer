@@ -6,7 +6,7 @@ part that must hold: rumps is touched only from timer/menu callbacks (main
 thread); the engine's watchdog thread only ever touches the queue.
 
 Deliberately minimal: status line, Start/Stop, About/Help, Quit. Settings
-and logs live in the terminal (run `duplicate-preventer` / `--follow-log`).
+and logs live in the terminal (run `duplicate-file-preventer` / `--follow-log`).
 """
 
 import os
@@ -72,8 +72,8 @@ class DupePreventerApp(rumps.App):
             title="Duplicate File Preventer",
             message=("This menu controls Start/Stop only.\n\n"
                      "Settings and logs live in the terminal:\n\n"
-                     "    duplicate-preventer                # settings menu\n"
-                     "    duplicate-preventer --follow-log   # live log\n\n"
+                     "    duplicate-file-preventer                # settings menu\n"
+                     "    duplicate-file-preventer --follow-log   # live log\n\n"
                      "Changes made there apply live - no restart needed."))
 
     def toggle(self, _):

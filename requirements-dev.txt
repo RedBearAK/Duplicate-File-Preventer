@@ -1,0 +1,13 @@
+# Duplicate File Preventer - development dependencies
+
+-r requirements.txt
+
+# Test modules are runnable directly (python3 tests/test_x.py) and are not
+# written in pytest style, but they remain pytest-collectable:
+#
+#     pytest                       # whole suite
+#     python3 tests/run_all.py     # whole suite, standalone, with a score
+#
+# Exit convention: main() returns truthy on overall pass and the inversion
+# happens once, at the exit call. See dev_notes/TEST_EXIT_CONVENTION.md.
+pytest>=7.0.0

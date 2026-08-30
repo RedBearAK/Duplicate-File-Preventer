@@ -71,9 +71,11 @@ class DupePreventerApp(rumps.App):
         rumps.alert(
             title="Duplicate File Preventer",
             message=("This menu controls Start/Stop only.\n\n"
-                     "Settings and logs live in the terminal:\n\n"
-                     "    duplicate-file-preventer                # settings menu\n"
-                     "    duplicate-file-preventer --follow-log   # live log\n\n"
+                     "Settings and logs live in the terminal.\n\n"
+                     "To change settings, run:\n"
+                     "    duplicate-file-preventer\n\n"
+                     "To watch the log live:\n"
+                     "    duplicate-file-preventer --follow-log\n\n"
                      "Changes made there apply live - no restart needed."))
 
     def toggle(self, _):

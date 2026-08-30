@@ -50,15 +50,28 @@ def destination_for(file_path, config, now=None):
 
 def quarantine_file(file_path, reason, config):
     """
-    Move file_path into quarantine and write its restore sidecar.
+    Put file_path into quarantine and write its restore sidecar.
     Returns (dest_path, size_bytes). Raises QuarantineError on failure.
+
+    quarantine_method "move" (default) renames/moves the file. "copy_delete"
+    copies it to quarantine, verifies the size, then deletes the original:
+    to a cloud sync client the file was deleted, not moved out of the
+    synced folder, which sidesteps Dropbox's "moved out of Dropbox" prompt.
     """
     dest_path = destination_for(file_path, config)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    method = str(config.get("quarantine_method", "move")).lower()
 
     try:
         file_size = os.path.getsize(file_path)
-        shutil.move(file_path, dest_path)
+        if method == "copy_delete":
+            shutil.copy2(file_path, dest_path)
+            if os.path.getsize(dest_path) != file_size:
+                os.remove(dest_path)
+                raise QuarantineError(f"copy size mismatch, original kept: {file_path}")
+            os.remove(file_path)
+        else:
+            shutil.move(file_path, dest_path)
     except PermissionError as error:
         raise QuarantineError(f"permission denied: {file_path}") from error
     except OSError as error:

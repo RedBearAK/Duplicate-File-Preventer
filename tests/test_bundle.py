@@ -76,8 +76,10 @@ def test_launcher_records_interpreter_and_package_dir():
         text = launcher.read_text()
         passed = check(text.startswith("#!/bin/sh") and MARKER in text, "sh script with marker",
                        f"text:\n{text}")
-        passed &= check(f'exec "{sys.executable}" -m duplicate_preventer --menubar' in text,
-                        "execs this interpreter with --menubar", f"text:\n{text}")
+        passed &= check(f'"{sys.executable}" -m duplicate_preventer --menubar' in text and "exec " not in text,
+                        "runs this interpreter with --menubar as a child (no exec)", f"text:\n{text}")
+        passed &= check("wait " in text and "trap " in text, "waits on the child and forwards signals",
+                        "no wait/trap")
         passed &= check(package_src_dir() in text and "PYTHONPATH" in text,
                         f"PYTHONPATH includes {package_src_dir()}", "package dir not exported")
         passed &= check("Library/Logs/DuplicateFilePreventer" in text, "launcher logs somewhere findable",

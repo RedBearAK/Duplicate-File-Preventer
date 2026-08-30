@@ -174,6 +174,21 @@ def test_quarantine_collision_gets_numbered_name():
         return passed
 
 
+def test_copy_delete_method_leaves_a_deletion_not_a_move():
+    print("\nTesting quarantine_method = copy_delete...")
+    with Sandbox(quarantine_method="copy_delete") as box:
+        original, dup = box.plant_pair(content=b"c" * 321)
+        dest, size = quarantine_file(dup, "test", box.config)
+        passed = check(not os.path.exists(dup) and os.path.isfile(dest) and size == 321,
+                       "copied then original deleted", f"dup exists={os.path.exists(dup)} dest={dest}")
+        passed &= check(Path(dest).read_bytes() == b"c" * 321, "content intact", "content differs")
+        passed &= check(read_restore_info(dest)["Original path"] == dup, "restore info written",
+                        "no restore info")
+        passed &= check(restore_file(dest) == dup and os.path.isfile(dup), "restores normally",
+                        "restore failed")
+        return passed
+
+
 def test_destination_for_falls_back_to_date_folder():
     print("\nTesting destination fallback for unknown paths...")
     with Sandbox() as box:
@@ -274,6 +289,7 @@ def main():
         test_find_duplicate_of_end_to_end,
         test_quarantine_preserves_structure_and_writes_restore_info,
         test_quarantine_collision_gets_numbered_name,
+        test_copy_delete_method_leaves_a_deletion_not_a_move,
         test_destination_for_falls_back_to_date_folder,
         test_restore_round_trip_and_refusals,
         test_list_quarantine_groups_by_date,

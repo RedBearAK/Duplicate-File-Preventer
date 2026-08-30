@@ -49,6 +49,12 @@ def package_src_dir():
 
 
 def launcher_text(interpreter, src_dir):
+    # The interpreter is run as a CHILD, not exec'd. After an exec the process
+    # image is python3.x and macOS names the permission prompts after it
+    # ("python3.12 would like to access..."), and the TCC grant attaches to the
+    # interpreter binary. As a child of the bundle's own executable, the bundle
+    # is the responsible process: prompts carry the app name and grants attach
+    # to the bundle. Signals are forwarded so Quit/logout still stop the engine.
     return (
         "#!/bin/sh\n"
         f"{MARKER}\n"
@@ -56,7 +62,11 @@ def launcher_text(interpreter, src_dir):
         f"export PYTHONPATH=\"{src_dir}${{PYTHONPATH:+:$PYTHONPATH}}\"\n"
         f"LOG=\"$HOME/{LOG_RELATIVE}\"\n"
         "mkdir -p \"$(dirname \"$LOG\")\"\n"
-        f"exec \"{interpreter}\" -m duplicate_preventer --menubar \"$@\" >> \"$LOG\" 2>&1\n"
+        f"\"{interpreter}\" -m duplicate_preventer --menubar \"$@\" >> \"$LOG\" 2>&1 &\n"
+        "child=$!\n"
+        "trap 'kill -TERM \"$child\" 2>/dev/null' TERM INT HUP\n"
+        "wait \"$child\"\n"
+        "exit $?\n"
     )
 
 
@@ -92,7 +102,7 @@ def recorded_interpreter(path):
     try:
         with open(launcher, "r", encoding="utf-8", errors="replace") as handle:
             for line in handle:
-                if line.startswith('exec "'):
+                if line.startswith('"') and '-m duplicate_preventer' in line:
                     return line.split('"')[1]
     except OSError:
         pass

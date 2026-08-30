@@ -57,6 +57,16 @@ repo imported them.
 8. **Python floor 3.9** (watchdog 6 needs it; the old ">=3.7" was already not
    true for current watchdog).
 
+## Added after first macOS use (20260830.5)
+
+- `on_moved` is handled: a rename into the `-N` pattern (Finder Duplicate then
+  rename; temp-then-rename writers) is checked like a create.
+- Bundle launcher runs the interpreter as a child instead of exec'ing it, so
+  macOS names permission prompts after the app and attaches the TCC grant to
+  the bundle rather than to `python3.x`.
+- `quarantine_method` config key: `move` (default) or `copy_delete`, the latter
+  to avoid Dropbox's "moved out of Dropbox" prompt. In the settings screen.
+
 ## New flags
 
 `--once`, `--follow-log`, `--lines N`, `--install-command [--dir DIR]`,

@@ -71,6 +71,7 @@ class Config:
         self.default_config = {
             "watched_folders": [],
             "quarantine_path": default_quarantine_path(),
+            "quarantine_method": "move",    # or "copy_delete" (see quarantine.py)
             "check_interval": 5,            # seconds; front-end refresh cadence
             "settle_seconds": 1.0,          # wait for a new file to stop growing
             "use_hash": False,

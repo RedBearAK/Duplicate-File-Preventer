@@ -168,6 +168,26 @@ def test_slow_writer_is_compared_after_it_finishes():
         return passed
 
 
+def test_rename_into_pattern_is_caught():
+    """Finder: Duplicate -> 'report copy.pdf', rename -> 'report-1.pdf'. That's a move, not a create."""
+    print("\nTesting a rename into the -N pattern...")
+    with Sandbox() as box:
+        engine = Engine(box.config)
+        engine.start()
+        box.plant("report.pdf", b"r" * 300)
+        staged = box.plant("report copy.pdf", b"r" * 300)
+        time.sleep(0.3)
+        final = str(box.watched / "report-1.pdf")
+        os.rename(staged, final)
+        quarantined = wait_for(lambda: engine.counters.quarantined >= 1, timeout=10)
+        engine.stop()
+        passed = check(quarantined and not os.path.exists(final), "renamed duplicate quarantined",
+                       "rename not detected")
+        passed &= check("Potential duplicate renamed" in box.log_text(), "logged as a rename",
+                        "log missing rename line")
+        return passed
+
+
 def test_unique_file_is_left_alone():
     print("\nTesting a -1 file with a different-size original...")
     with Sandbox() as box:
@@ -419,6 +439,7 @@ def main():
         test_no_print_statements_in_engine_source,
         test_live_duplicate_is_quarantined_with_event,
         test_slow_writer_is_compared_after_it_finishes,
+        test_rename_into_pattern_is_caught,
         test_unique_file_is_left_alone,
         test_dry_run_moves_nothing_but_reports,
         test_status_health_tracks_observer_liveness,

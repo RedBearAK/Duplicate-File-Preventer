@@ -37,9 +37,18 @@ class _Handler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory:
             return
-        path = event.src_path
+        self._consider(event.src_path, "created")
+
+    def on_moved(self, event):
+        """A rename to a -N name counts: Finder 'Duplicate' then rename, or a
+        writer that fills a temp file and renames it into place."""
+        if event.is_directory:
+            return
+        self._consider(event.dest_path, "renamed")
+
+    def _consider(self, path, how):
         if self.processor.is_candidate(path):
-            self.processor.logger.info(f"Potential duplicate detected: {path}")
+            self.processor.logger.info(f"Potential duplicate {how}: {path}")
             self.processor.process(path, settle=True)
 
 

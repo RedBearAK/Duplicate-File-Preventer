@@ -221,7 +221,7 @@ def test_configure_settings_saves_and_applies_live():
     with Sandbox() as box:
         # start, then settings: dry_run y, size y, time y + "2h", hash n,
         # change quarantine n, days 7, level INFO, size 10 -> then stop, quit
-        script = "4\n\n2\ny\ny\ny\n2h\nn\nn\n7\nINFO\n10\n\n4\n\nQ\n"
+        script = "4\n\n2\ny\ny\ny\n2h\nn\nn\nmove\n7\nINFO\n10\n\n4\n\nQ\n"
         with Driver(box, script) as drv:
             drv.tui.show_menu()
             status = drv.tui.engine.status()

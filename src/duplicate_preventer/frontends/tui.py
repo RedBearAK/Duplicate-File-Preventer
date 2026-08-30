@@ -397,6 +397,11 @@ class DuplicateMonitorTUI:
                     quarantine = current_quarantine
             changes["quarantine_path"] = quarantine
 
+        console.print("[dim]move = rename into quarantine; copy_delete = copy, verify, then delete the "
+                      "original (looks like a deletion to Dropbox, so no 'moved out' prompt)[/dim]")
+        changes["quarantine_method"] = Prompt.ask(
+            "Quarantine method", default=config.get("quarantine_method", "move"),
+            choices=["move", "copy_delete"], console=console)
         changes["delete_after_days"] = IntPrompt.ask(
             "Delete quarantined files after (days, 0=never)",
             default=config.get("delete_after_days"), console=console)
@@ -429,6 +434,7 @@ class DuplicateMonitorTUI:
         table.add_row("  Config File", config.config_file)
         table.add_row("  Log File", config.get("log_file"))
         table.add_row("  Quarantine", config.get("quarantine_path"))
+        table.add_row("  Quarantine Method", config.get("quarantine_method", "move"))
         if is_cloud_folder(config.get("quarantine_path")):
             table.add_row("", "[yellow]⚠️  Inside cloud sync folder[/yellow]")
         table.add_row("", "")

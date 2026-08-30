@@ -477,7 +477,7 @@ without `tail`.
 
 **Phase 2 — `--menubar` front end, run from Terminal.** *Done 2026-08-30 on macOS.*
 Icon set (overlapping sheets with a strike; green dot = watching, red square =
-problem, nothing = paused) lives in `frontends/icons/`, full-colour rather than
+stopped, yellow warning triangle = problem) lives in `frontends/icons/`, full-colour rather than
 template so the status corner can carry colour. Alerts call
 `NSApp.activateIgnoringOtherApps_(True)` first; without it an unbundled Python
 launched from Terminal shows the dialog behind everything and bounces the Dock

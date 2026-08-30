@@ -20,11 +20,12 @@ from duplicate_preventer.engine import Config, Engine, EngineError
 
 
 # Full-colour icons rather than macOS "template" images, so the status corner
-# can be green/red; the sheets are a mid grey that reads on both light and
+# can carry colour: green dot = watching, red square = stopped, yellow warning
+# triangle = problem. The sheets are a mid grey that reads on both light and
 # dark menu bars. AppKit picks the @2x file on Retina by naming convention.
 ICON_DIR = os.path.join(os.path.dirname(__file__), "icons")
 ICON_WATCHING = os.path.join(ICON_DIR, "watching.png")
-ICON_PAUSED = os.path.join(ICON_DIR, "paused.png")
+ICON_STOPPED = os.path.join(ICON_DIR, "stopped.png")
 ICON_PROBLEM = os.path.join(ICON_DIR, "problem.png")
 
 TICK_SECONDS = 0.5
@@ -42,7 +43,7 @@ def bring_to_front():
 class DupePreventerApp(rumps.App):
 
     def __init__(self, engine):
-        super().__init__("DupePrev", icon=ICON_PAUSED, quit_button=None)
+        super().__init__("DupePrev", icon=ICON_STOPPED, quit_button=None)
         self.engine = engine
         self.status_item = rumps.MenuItem("Status: not monitoring")
         self.status_item.set_callback(None)
@@ -97,7 +98,7 @@ class DupePreventerApp(rumps.App):
                 f"{st.quarantined_session} quarantined this session"
                 + (" (dry run)" if st.dry_run else ""))
         else:
-            self.icon = ICON_PAUSED
+            self.icon = ICON_STOPPED
             self.status_item.title = "Status: not monitoring"
         self.toggle_item.title = "Stop monitoring" if st.monitoring else "Start monitoring"
 

@@ -346,6 +346,55 @@ def test_hot_reload_survives_corrupt_config():
         return passed
 
 
+def test_start_failure_releases_lock_and_reports():
+    """A start that blows up must not leave the lock held with monitoring=False."""
+    print("\nTesting start() unwinds on failure...")
+    with Sandbox() as box:
+        engine = Engine(box.config)
+        original = engine._start_observer
+
+        def boom():
+            raise RuntimeError("simulated observer failure")
+
+        engine._start_observer = boom
+        raised = None
+        with captured() as (out, err):
+            try:
+                engine.start()
+            except EngineError as error:
+                raised = error
+        passed = check(raised is not None and "simulated" in str(raised), f"EngineError: {raised}",
+                       f"no EngineError ({raised})")
+        passed &= check(not engine.lock.held and not engine.status().monitoring,
+                        "lock released, not monitoring", f"held={engine.lock.held}")
+        passed &= check("START FAILED" in box.log_text(), "failure logged", "no log line")
+        passed &= check(out.getvalue() == "" and err.getvalue() == "", "silent on the failure path",
+                        f"printed: {out.getvalue()!r} {err.getvalue()!r}")
+
+        engine._start_observer = original
+        engine.start()
+        passed &= check(engine.status().monitoring and engine.status().healthy,
+                        "a retry succeeds", "retry blocked")
+        engine.stop()
+        return passed
+
+
+def test_engine_is_silent_before_setup_and_on_errors():
+    """The NullHandler: a logger that has never been set up must not fall back to stderr."""
+    print("\nTesting logger silence without setup...")
+    with Sandbox() as box:
+        engine = Engine(box.config)          # no start(): no file handler yet
+        with open(box.config.config_file, "w") as handle:
+            handle.write("{ broken")
+        with captured() as (out, err):
+            engine.logger.warning("a warning before setup")
+            engine.reload_config_if_changed()    # logs an error via the engine logger
+        passed = check(out.getvalue() == "" and err.getvalue() == "",
+                       "nothing on stdout/stderr", f"leaked: {out.getvalue()!r} {err.getvalue()!r}")
+        passed &= check(not engine.status().healthy, "unhealthy recorded", "status not updated")
+        return passed
+
+
 def test_second_engine_refuses_and_reports_holder():
     print("\nTesting the monitoring lock (in-process)...")
     with Sandbox() as box:
@@ -446,6 +495,8 @@ def main():
         test_missing_folder_reported_not_fatal,
         test_hot_reload_changes_watch_list_without_restart,
         test_hot_reload_survives_corrupt_config,
+        test_start_failure_releases_lock_and_reports,
+        test_engine_is_silent_before_setup_and_on_errors,
         test_second_engine_refuses_and_reports_holder,
         test_lock_is_held_across_processes,
         test_scan_once_handles_existing_files_recursively,

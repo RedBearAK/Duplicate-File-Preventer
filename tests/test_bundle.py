@@ -187,7 +187,7 @@ def test_compiled_launcher_forwards_sigterm():
         fake = Path(tmp) / "fake_python"
         fake.write_text("#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n")
         fake.chmod(0o755)
-        path = install_app(tmp, interpreter=str(fake), out=lambda _: None)
+        path = install_app(tmp, interpreter=str(fake), out=lambda _: None, check=False)
         launcher = Path(path) / "Contents" / "MacOS" / "launcher"
         env = dict(os.environ)
         env["HOME"] = tmp
@@ -207,7 +207,7 @@ def test_reinstall_refreshes_interpreter_and_never_touches_foreign_bundle():
     with tempfile.TemporaryDirectory() as tmp:
         install_app(tmp, out=lambda _: None)
         lines, out = collect()
-        path = install_app(tmp, interpreter="/opt/other/python3", out=out)
+        path = install_app(tmp, interpreter="/opt/other/python3", out=out, check=False)
         passed = check(any(l.startswith("Updated") for l in lines)
                        and recorded_interpreter(path) == "/opt/other/python3",
                        "reinstall rewrote the interpreter", f"output: {lines}")
@@ -224,6 +224,32 @@ def test_reinstall_refreshes_interpreter_and_never_touches_foreign_bundle():
         removed = uninstall_app(str(Path(tmp) / "other"), out=lambda _: None)
         passed &= check(not removed and foreign.exists(), "uninstall refused foreign bundle",
                         "uninstall removed a foreign bundle")
+        return passed
+
+
+def test_install_refuses_an_interpreter_that_cannot_run_the_tool():
+    """Through a generic stub, sys.executable may be the system Python with no watchdog."""
+    print("\nTesting the interpreter sanity check...")
+    with tempfile.TemporaryDirectory() as tmp:
+        lines, out = collect()
+        result = install_app(tmp, interpreter="/definitely/not/python", out=out)
+        passed = check(result is None and any("Refusing to install" in l for l in lines),
+                       "missing interpreter refused", f"result={result} output={lines}")
+        passed &= check(not os.path.exists(os.path.join(tmp, f"{APP_NAME}.app")), "nothing written",
+                        "bundle written despite refusal")
+
+        # A real interpreter that lacks the dependencies: fake one that fails imports.
+        fake = Path(tmp) / "bare_python"
+        fake.write_text("#!/bin/sh\nprintf 'MISSING watchdog: ModuleNotFoundError\\n'\n")
+        fake.chmod(0o755)
+        lines, out = collect()
+        result = install_app(tmp, interpreter=str(fake), out=out)
+        passed &= check(result is None and any("watchdog" in l for l in lines),
+                        "interpreter without deps refused, naming the module", f"output={lines}")
+
+        from duplicate_preventer.frontends.bundle import interpreter_can_run, package_src_dir
+        ok, detail = interpreter_can_run(sys.executable, package_src_dir(), ("watchdog", "rich"))
+        passed &= check(ok, "this interpreter passes", f"detail={detail}")
         return passed
 
 
@@ -267,6 +293,7 @@ def main():
         test_launchers_run_and_reach_the_dispatcher,
         test_compiled_launcher_forwards_sigterm,
         test_reinstall_refreshes_interpreter_and_never_touches_foreign_bundle,
+        test_install_refuses_an_interpreter_that_cannot_run_the_tool,
         test_uninstall_removes_own_bundle,
         test_cli_flags_reach_the_bundle_writer,
     ])

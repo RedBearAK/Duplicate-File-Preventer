@@ -11,17 +11,19 @@ and logs live in the terminal (run `duplicate-file-preventer` / `--follow-log`).
 
 import os
 import signal
+import subprocess
 
 import rumps    # ImportError here is caught by __main__ with a helpful message
 
 from rumps.rumps import NSApplication    # rumps already imported AppKit; reuse it
 
 from duplicate_preventer.engine import Config, Engine, EngineError
+from duplicate_preventer.engine.permissions import full_disk_access, SETTINGS_URL_FULL_DISK_ACCESS
 
 
-# Full-colour icons rather than macOS "template" images, so the status corner
-# can carry colour: green dot = watching, red square = stopped, yellow warning
-# triangle = problem. The sheets are a mid grey that reads on both light and
+# Full-color icons rather than macOS "template" images, so the status corner
+# can carry color: green dot = watching, red square = stopped, yellow warning
+# triangle = problem. The sheets are a mid gray that reads on both light and
 # dark menu bars. AppKit picks the @2x file on Retina by naming convention.
 ICON_DIR = os.path.join(os.path.dirname(__file__), "icons")
 ICON_WATCHING = os.path.join(ICON_DIR, "watching.png")
@@ -53,7 +55,7 @@ def bring_to_front():
 
 class DupePreventerApp(rumps.App):
 
-    def __init__(self, engine):
+    def __init__(self, engine, autostart=True):
         super().__init__("DupePrev", icon=ICON_STOPPED, quit_button=None)
         self.engine = engine
         self.status_item = rumps.MenuItem("Status: not monitoring")
@@ -63,8 +65,18 @@ class DupePreventerApp(rumps.App):
         self.quit_item = rumps.MenuItem("Quit", callback=self.quit)
         self.menu = [self.status_item, None, self.toggle_item, None,
                      self.about_item, self.quit_item]
+        self._fda_offered = False
         self._tick_timer = rumps.Timer(self._tick, TICK_SECONDS)
         self._tick_timer.start()
+        # Anything that may show an alert must run inside the event loop, so
+        # the initial start is deferred to a one-shot timer rather than done
+        # before app.run().
+        self._autostart_timer = None
+        if autostart:
+            self._autostart_timer = rumps.Timer(self._autostart, 0.2)
+            self._autostart_timer.start()
+
+    # --- alerts (all main-thread; rumps callbacks only) ---------------------
 
     def show_about(self, _):
         bring_to_front()
@@ -76,40 +88,146 @@ class DupePreventerApp(rumps.App):
                      "    duplicate-file-preventer\n\n"
                      "To watch the log live:\n"
                      "    duplicate-file-preventer --follow-log\n\n"
-                     "Changes made there apply live - no restart needed."))
+                     "Changes made there apply live.\n\n"
+                     "Asked for folder permission at every\n"
+                     "launch? Grant the app Full Disk Access\n"
+                     "once, in System Settings > Privacy &\n"
+                     "Security."))
+
+    def show_unconfigured(self):
+        bring_to_front()
+        rumps.alert(
+            title="No folders to watch",
+            message=("Add folders in the terminal:\n\n"
+                     "    duplicate-file-preventer\n\n"
+                     "then choose Start monitoring here.\n"
+                     "The app picks up the change live."))
+
+    def offer_full_disk_access(self):
+        """
+        Reached only when a watched folder was denied AND the app lacks
+        Full Disk Access. FDA persists per bundle for any signature, so
+        one grant ends the per-launch prompting.
+        """
+        if self._fda_offered:
+            return
+        self._fda_offered = True
+        bring_to_front()
+        choice = rumps.alert(
+            title="Folder access was denied",
+            message=("macOS refused access to a watched\n"
+                     "folder. The reliable fix is to grant\n"
+                     "this app Full Disk Access once:\n\n"
+                     "System Settings > Privacy & Security\n"
+                     "> Full Disk Access > switch on\n"
+                     "'Duplicate File Preventer'.\n\n"
+                     "Monitoring starts by itself once the\n"
+                     "switch is on."),
+            ok="Open System Settings", cancel="Later")
+        if choice == 1:
+            subprocess.Popen(["open", SETTINGS_URL_FULL_DISK_ACCESS])
+
+    # --- actions -------------------------------------------------------------
+
+    def _try_start(self):
+        """Start the engine; report any failure in an alert. Returns True on success."""
+        if not self.engine.config.get("watched_folders"):
+            self.show_unconfigured()
+            return False
+        try:
+            bring_to_front()            # a folder permission prompt may follow
+            self.engine.start()
+        except EngineError as error:
+            bring_to_front()
+            rumps.alert(title="Cannot start", message=str(error))
+            return False
+        except Exception as error:        # a rumps callback that raises dies silently
+            self.engine.logger.error(f"Unexpected start failure: {error!r}")
+            bring_to_front()
+            rumps.alert(title="Cannot start", message=f"{type(error).__name__}: {error}")
+            return False
+        return True
+
+    def _autostart(self, timer):
+        timer.stop()
+        try:
+            if self.engine.config.get("watched_folders"):
+                self._try_start()
+            self._after_start_checks()
+        except Exception as error:
+            self.engine.logger.error(f"Autostart failure: {error!r}")
+        self._refresh()
 
     def toggle(self, _):
-        if self.engine.status().monitoring:
-            self.engine.stop()
-        else:
-            try:
-                self.engine.start()
-            except EngineError as error:
-                bring_to_front()
-                rumps.alert(title="Cannot start", message=str(error))
+        try:
+            if self.engine.status().monitoring:
+                self.engine.stop()
+            elif self._try_start():
+                self._after_start_checks()
+        except Exception as error:
+            self.engine.logger.error(f"Toggle failure: {error!r}")
+            bring_to_front()
+            rumps.alert(title="Duplicate File Preventer", message=f"{type(error).__name__}: {error}")
         self._refresh()
+
+    def _after_start_checks(self):
+        st = self.engine.status()
+        if st.denied_folders and full_disk_access() is False:
+            self.offer_full_disk_access()
 
     def quit(self, _=None):
         self._tick_timer.stop()
-        self.engine.stop()
-        rumps.quit_application()
+        try:
+            self.engine.stop()
+        finally:
+            rumps.quit_application()
+
+    # --- periodic ------------------------------------------------------------
 
     def _tick(self, _timer):
-        self.engine.events.drain()          # the log has the details
-        self.engine.reload_config_if_changed()
-        self._refresh()
+        try:
+            self.engine.events.drain()          # the log has the details
+            self.engine.reload_config_if_changed()
+            self._recheck_denied()
+            self._refresh()
+        except Exception as error:
+            self.engine.logger.error(f"Tick failure: {error!r}")
+
+    def _recheck_denied(self):
+        """Once FDA is granted (or the folder grant flips on), restart so the
+        denied folders join the watch without user action."""
+        st = self.engine.status()
+        if not st.monitoring or not st.denied_folders:
+            return
+        for folder in st.denied_folders:
+            try:
+                os.listdir(folder)
+            except OSError:
+                return
+        self.engine.logger.info("Denied folder now readable; restarting watcher")
+        self.engine.stop()
+        self._try_start()
 
     def _refresh(self):
         st = self.engine.status()
+        configured = bool(self.engine.config.get("watched_folders"))
         if not st.healthy:
             self.icon = ICON_PROBLEM
             self.status_item.title = f"Problem: {st.last_error or 'see log'}"
         elif st.monitoring:
             self.icon = ICON_WATCHING
+            count = len(st.watched_folders)
             self.status_item.title = (
-                f"Watching {len(st.watched_folders)} folders - "
+                f"Watching {count} folder{'s' if count != 1 else ''} - "
                 f"{st.quarantined_session} quarantined this session"
+                + (f", {len(st.denied_folders)} denied" if st.denied_folders else "")
                 + (" (dry run)" if st.dry_run else ""))
+        elif not configured:
+            self.icon = ICON_STOPPED
+            self.status_item.title = "No folders configured - add them in the terminal"
+        elif st.lock_holder_pid:
+            self.icon = ICON_STOPPED
+            self.status_item.title = f"Monitoring runs in another process (PID {st.lock_holder_pid})"
         else:
             self.icon = ICON_STOPPED
             self.status_item.title = "Status: not monitoring"
@@ -128,11 +246,6 @@ def run_menubar(config=None):
     signal.signal(signal.SIGTERM, on_signal)
 
     try:
-        if engine.config.get("watched_folders"):
-            try:
-                engine.start()
-            except EngineError:
-                pass            # icon shows "not monitoring"; menu explains on Start
         app.run()
     finally:
         engine.stop()

@@ -45,14 +45,14 @@ class Status:
         "monitoring", "healthy", "last_error", "watched_folders",
         "quarantined_session", "quarantined_total", "checked_session",
         "last_event_ts", "last_event", "dry_run", "dropped_events",
-        "lock_holder_pid", "started_at",
+        "lock_holder_pid", "started_at", "denied_folders",
     )
 
     def __init__(self, monitoring=False, healthy=True, last_error=None,
                  watched_folders=None, quarantined_session=0,
                  quarantined_total=0, checked_session=0, last_event_ts=None,
                  last_event=None, dry_run=False, dropped_events=0,
-                 lock_holder_pid=None, started_at=None):
+                 lock_holder_pid=None, started_at=None, denied_folders=None):
         self.monitoring = monitoring
         self.healthy = healthy
         self.last_error = last_error
@@ -66,6 +66,7 @@ class Status:
         self.dropped_events = dropped_events
         self.lock_holder_pid = lock_holder_pid
         self.started_at = started_at
+        self.denied_folders = list(denied_folders or [])
 
     def as_dict(self):
         return {name: getattr(self, name) for name in self.__slots__}

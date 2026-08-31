@@ -68,6 +68,7 @@ class Engine:
         self._last_error = None
         self._started_at = None
         self._active_folders = []
+        self._denied_folders = []
         self._quarantined_at_start = 0
         self._logging_signature = None
 
@@ -88,25 +89,41 @@ class Engine:
                     f"monitoring is already running in another process "
                     f"(PID {self.lock.holder_pid() or 'unknown'})")
 
-            self._ensure_logging()
-            self.logger.info("=" * 60)
-            self.logger.info(f"Duplicate File Preventer started - PID {os.getpid()}")
-            self.logger.info(f"Config: {self.config.config_file}")
-            self.logger.info(f"Dry run mode: "
-                             f"{'ENABLED' if self.config.get('dry_run') else 'DISABLED'}")
-            self.logger.info(f"Detection: {self.detection_summary()}")
-
+            # All-or-nothing from here: any failure unwinds the lock and the
+            # observer so the engine is never "not monitoring" while owning
+            # the lock (a state the menu shows as stopped, but Start can't fix).
             try:
-                self._quarantined_at_start = count_quarantined(self.config)
-            except OSError:
-                self._quarantined_at_start = 0
+                self._ensure_logging()
+                self.logger.info("=" * 60)
+                self.logger.info(f"Duplicate File Preventer started - PID {os.getpid()}")
+                self.logger.info(f"Config: {self.config.config_file}")
+                self.logger.info(f"Dry run mode: "
+                                 f"{'ENABLED' if self.config.get('dry_run') else 'DISABLED'}")
+                self.logger.info(f"Detection: {self.detection_summary()}")
 
-            self._last_error = None
-            self._start_observer()
-            self._monitoring = True
-            self._started_at = time.time()
-            count = len(self._active_folders)
-            self.events.put(Event("started", "", f"{count} folder{'s' if count != 1 else ''}"))
+                try:
+                    self._quarantined_at_start = count_quarantined(self.config)
+                except OSError:
+                    self._quarantined_at_start = 0
+
+                self._last_error = None
+                self.logger.info("Starting watcher (a folder permission prompt may appear)...")
+                self._start_observer()
+                self._monitoring = True
+                self._started_at = time.time()
+                count = len(self._active_folders)
+                self.logger.info(f"Watcher running on {count} folder{'s' if count != 1 else ''}")
+                self.events.put(Event("started", "", f"{count} folder{'s' if count != 1 else ''}"))
+            except EngineError:
+                raise
+            except Exception as error:
+                self._stop_observer()
+                self._monitoring = False
+                self._started_at = None
+                self.lock.release()
+                self.logger.error(f"START FAILED: {error}")
+                self.events.put(Event("error", "", f"start failed: {error}"))
+                raise EngineError(f"could not start monitoring: {error}") from error
 
     def stop(self):
         with self._state_lock:
@@ -125,12 +142,19 @@ class Engine:
         self._observer = Observer()
         self._active_folders = []
 
+        self._denied_folders = []
         for folder in self.config.get("watched_folders", []):
             if os.path.isdir(folder):
                 try:
+                    os.listdir(folder)      # explicit probe: a denied grant fails here, not silently
                     self._observer.schedule(self._handler, folder, recursive=True)
+                except PermissionError as error:
+                    self._denied_folders.append(folder)
+                    self.logger.error(f"Permission denied for '{folder}': {error}")
+                    self.events.put(Event("error", folder, "permission denied"))
+                    continue
                 except OSError as error:
-                    self.logger.error(f"Cannot watch {folder}: {error}")
+                    self.logger.error(f"Cannot watch '{folder}': {error}")
                     self.events.put(Event("error", folder, f"cannot watch: {error}"))
                     continue
                 self._active_folders.append(folder)
@@ -140,7 +164,10 @@ class Engine:
                 self.events.put(Event("error", folder, "folder missing, not watched"))
 
         if not self._active_folders:
-            self._last_error = "no usable folders to watch"
+            if self._denied_folders:
+                self._last_error = "permission denied for all watched folders"
+            else:
+                self._last_error = "no usable folders to watch"
             self.logger.error(self._last_error)
             self.events.put(Event("error", "", self._last_error))
 
@@ -218,6 +245,7 @@ class Engine:
                 dropped_events=self.events.dropped,
                 lock_holder_pid=holder,
                 started_at=self._started_at,
+                denied_folders=list(self._denied_folders),
             )
 
     def detection_summary(self):

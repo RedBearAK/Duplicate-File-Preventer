@@ -56,7 +56,7 @@ def package_src_dir():
 
 
 def launcher_text(interpreter, src_dir):
-    """Shell fallback: same behaviour as the C launcher, weaker TCC attribution."""
+    """Shell fallback: same behavior as the C launcher, weaker TCC attribution."""
     return (
         "#!/bin/sh\n"
         f"{MARKER}\n"
@@ -180,15 +180,56 @@ def codesign(path, out):
     return True
 
 
-def install_app(app_dir=None, interpreter=None, src_dir=None, name=APP_NAME, out=print):
+REQUIRED_MODULES = ("watchdog", "rich")
+MENUBAR_MODULES = ("rumps",)
+
+
+def interpreter_can_run(interpreter, src_dir, modules):
+    """
+    (ok, detail). Runs the candidate interpreter with the package dir on
+    PYTHONPATH and imports what the menu bar app needs. The bundle records
+    whatever python the installer was launched with; through a generic stub
+    that may be the system Python, and a bundle pinned to it dies at login
+    on `import watchdog` with nobody watching.
+    """
+    code = "import importlib,sys\n" \
+           "mods=" + repr(list(modules) + ["duplicate_preventer"]) + "\n" \
+           "bad=[]\n" \
+           "for m in mods:\n" \
+           "    try: importlib.import_module(m)\n" \
+           "    except Exception as e: bad.append(f'{m}: {type(e).__name__}')\n" \
+           "print('OK' if not bad else 'MISSING ' + ', '.join(bad))\n"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = src_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    try:
+        result = subprocess.run([interpreter, "-c", code], capture_output=True, text=True,
+                                env=env, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"cannot run {interpreter}: {error}"
+    text = (result.stdout or result.stderr).strip()
+    return text == "OK", text
+
+
+def install_app(app_dir=None, interpreter=None, src_dir=None, name=APP_NAME, out=print,
+                check=True):
     """
     Write (or refresh) the bundle. Returns its path, or None when it
-    refused to overwrite something it did not create.
+    refused to overwrite something it did not create, or when the
+    interpreter cannot run the tool (check=True).
     """
     app_dir = os.path.abspath(app_dir or default_app_dir())
     interpreter = interpreter or sys.executable
     src_dir = src_dir or package_src_dir()
     path = bundle_path(app_dir, name)
+
+    if check:
+        needed = REQUIRED_MODULES + (MENUBAR_MODULES if sys.platform == "darwin" else ())
+        ok, detail = interpreter_can_run(interpreter, src_dir, needed)
+        if not ok:
+            out(f"Refusing to install: {interpreter} cannot run the menu bar app ({detail}).")
+            out("Activate the venv that has watchdog, rich and rumps installed, then re-run")
+            out("--install-app from it, so the bundle records that interpreter.")
+            return None
 
     if os.path.exists(path) and not is_our_bundle(path):
         out(f"Refusing to overwrite {path}: it is not a bundle written by this tool.")

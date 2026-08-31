@@ -73,6 +73,47 @@ repo imported them.
   on a Mac: Dropbox prompts on files moved out of its folder, not on deletions,
   so copy-verify-delete keeps the tool silent. In the settings screen.
 
+## Back-ported from Stickies-to-Markdown (20260831.1)
+
+From `dev_notes/HANDOFF_lessons_for_DFP.md` (the S2M → DFP handoff):
+
+- `Engine.start()` is all-or-nothing: any failure after the lock is taken
+  unwinds the observer, releases the lock, logs `START FAILED`, and re-raises
+  as `EngineError`. Previously a failure left the lock held with
+  `monitoring=False`, which the menu showed as "stopped" but Start could not fix.
+- Each watched folder is probed with `os.listdir()` before scheduling, so a
+  TCC denial is an explicit `PermissionError` (logged, `Status.denied_folders`)
+  instead of a watcher that silently delivers nothing.
+- `engine/logsetup.py` installs a `NullHandler` at import so an engine that
+  logs before `start()` (a reload error, a probe) never falls back to
+  logging's stderr `lastResort` handler. Tested on the unhealthy path.
+- `engine/permissions.py`: `full_disk_access()` probes an FDA-only canary
+  (never a watched folder). The menu bar app offers Full Disk Access - alert
+  with *Open System Settings* / *Later* - only when a watched folder was
+  denied and FDA is absent, then restarts the watcher on its own once the
+  folder becomes readable. Dropbox-only users never see it. Folder-service
+  grants persist per bundle; FDA is for the container/App Data case where
+  ad-hoc-signed apps are re-prompted every launch (verified in S2M).
+- Menu bar: every rumps callback catches everything and reports in an alert
+  (an uncaught exception in a callback dies silently); the initial start runs
+  from a one-shot timer inside the event loop so its alerts can appear;
+  `bring_to_front()` precedes anything that may prompt; explicit status text
+  when nothing is configured or another process holds the lock; About text
+  laid out for NSAlert's narrow column and mentions the FDA remedy.
+- `--install-app` verifies the interpreter it is about to record can import
+  `duplicate_preventer`, `watchdog`, `rich` (and `rumps` on macOS) and refuses
+  otherwise. Through a generic `python3` stub the recorded interpreter is
+  whatever is active; a bundle pinned to the system Python dies at login with
+  nobody watching.
+- Quarantine root gets `_ABOUT_THIS_FOLDER.txt` (what the folder is, how to
+  restore, safe to delete), written once, excluded from listings and cleanup.
+- US spelling throughout the source.
+
+Not adopted (domain-specific or not needed here): multi-output config, the
+single-worker pending-set watcher (DFP settles per file on the dispatch
+thread, which is adequate at attachment volumes), machine-id stamping,
+`--purge`, self-signing.
+
 ## New flags
 
 `--once`, `--follow-log`, `--lines N`, `--install-command [--dir DIR]`,

@@ -19,6 +19,14 @@ _FORMATTER = logging.Formatter(
 )
 
 
+# Without a handler, logging's "lastResort" handler prints WARNING and above
+# to stderr. An engine that has logged but not yet been started (a reload
+# error, a probe) must still be silent, so the logger owns a NullHandler
+# from import time; setup_logging() replaces it with the file handler.
+logging.getLogger(LOGGER_NAME).addHandler(logging.NullHandler())
+logging.getLogger(LOGGER_NAME).propagate = False
+
+
 def get_logger():
     return logging.getLogger(LOGGER_NAME)
 

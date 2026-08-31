@@ -82,7 +82,8 @@ class Sandbox:
             return []
         return sorted(str(p.relative_to(self.quarantine))
                       for p in self.quarantine.rglob("*")
-                      if p.is_file() and not p.name.endswith(".restore_info"))
+                      if p.is_file() and not p.name.endswith(".restore_info")
+                      and p.name != "_ABOUT_THIS_FOLDER.txt")
 
     def close(self):
         self._tmp.cleanup()

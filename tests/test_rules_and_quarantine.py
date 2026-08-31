@@ -273,9 +273,14 @@ def test_clean_old_respects_cutoff_and_prunes_dirs():
         for path in (new_dest, new_dest + ".restore_info"):
             os.utime(path, (ancient, ancient))
         clean_old(box.config)
-        remaining = [p for p in box.quarantine.rglob("*")]
+        remaining = [p for p in box.quarantine.rglob("*") if p.name != "_ABOUT_THIS_FOLDER.txt"]
         passed &= check(not remaining, "empty date folders pruned",
                         f"leftover paths: {remaining}")
+        readme = box.quarantine / "_ABOUT_THIS_FOLDER.txt"
+        passed &= check(readme.is_file() and "Duplicate File Preventer" in readme.read_text(),
+                        "folder explainer written and kept through cleanup", "explainer missing")
+        passed &= check(all(e["name"] != "_ABOUT_THIS_FOLDER.txt" for e in list_quarantine(box.config)),
+                        "explainer excluded from the listing", "explainer counted as quarantined file")
         return passed
 
 

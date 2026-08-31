@@ -18,6 +18,19 @@ from duplicate_preventer.engine.utils import get_relative_path
 
 
 RESTORE_SUFFIX = '.restore_info'
+README_NAME = "_ABOUT_THIS_FOLDER.txt"
+README_TEXT = """This folder is maintained by Duplicate File Preventer.
+
+Files here were found next to an original with the same name minus a -1/-2
+suffix, judged identical by the configured checks, and moved aside so they
+would not sync to cloud storage. Nothing here is deleted automatically unless
+you set an auto-delete age in the tool's settings.
+
+Each file has a sidecar ending in .restore_info recording where it came from.
+To put a file back, run `duplicate-file-preventer`, open View quarantine,
+and choose Restore. Deleting files here by hand is safe; the originals remain
+where they were.
+"""
 
 
 class QuarantineError(Exception):
@@ -48,6 +61,20 @@ def destination_for(file_path, config, now=None):
     return dest_path
 
 
+def ensure_readme(config):
+    """Write the folder explainer once; never overwrite a user's edits."""
+    root = config.get("quarantine_path")
+    path = os.path.join(root, README_NAME)
+    if os.path.exists(path):
+        return
+    try:
+        os.makedirs(root, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(README_TEXT)
+    except OSError:
+        pass
+
+
 def quarantine_file(file_path, reason, config):
     """
     Put file_path into quarantine and write its restore sidecar.
@@ -60,6 +87,7 @@ def quarantine_file(file_path, reason, config):
     """
     dest_path = destination_for(file_path, config)
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    ensure_readme(config)
     method = str(config.get("quarantine_method", "move")).lower()
 
     try:
@@ -112,7 +140,7 @@ def list_quarantine(config):
 
     for dirpath, _dirs, files in os.walk(root):
         for name in files:
-            if name.endswith(RESTORE_SUFFIX):
+            if name.endswith(RESTORE_SUFFIX) or (dirpath == root and name == README_NAME):
                 continue
             path = os.path.join(dirpath, name)
             rel_path = os.path.relpath(path, root)
@@ -190,6 +218,8 @@ def clean_old(config, days=None, now=None):
 
     for dirpath, _dirs, files in os.walk(root):
         for name in files:
+            if dirpath == root and name == README_NAME:
+                continue
             path = os.path.join(dirpath, name)
             try:
                 mtime = datetime.fromtimestamp(os.path.getmtime(path))
